@@ -69,6 +69,7 @@ electragram-v2/
 - **Go Lambda (API Gateway trigger)** → Tracking (low-latency HTTP, HMAC tokens, async DB writes) or Webhooks (Twilio signature validation, SQS routing)
 - **TypeScript/Fastify — renderer pattern** → Design (template rendering, CSS variable injection, interpolation pipeline)
 - **TypeScript/Fastify — SQS consumer + HTTP API** → Analytics (background SNS event processing, atomic counter upserts, activity feed)
+- **TypeScript/Fastify — WebSocket + SQS consumer** → Chat (real-time message broadcast, inbound Twilio routing, find-or-create conversation)
 
 ---
 

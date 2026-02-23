@@ -15,7 +15,7 @@
 | **Messaging** | ✅ Complete | 82 passing | Templates, scheduling, SQS dispatch, unsubscribes |
 | **Delivery** | ✅ Complete | 30 passing | SendGrid + Twilio, partial batch failure, Go/Lambda |
 | **Tracking** | ✅ Complete | 57 passing (handler 98%) | Open pixel, click redirect, HMAC-signed tokens, unsubscribe confirm |
-| **Chat** | 🔧 Scaffold | — | WebSocket, Twilio inbound |
+| **Chat** | ✅ Complete | 48 passing | WebSocket broadcast, SQS inbound consumer, conversations, inbound/outbound messages, Twilio HTTP sender |
 | **Integrations** | 🔧 Scaffold | — | HubSpot, Mailchimp, Salesforce |
 | **Design** | ✅ Complete | 61 passing | Themes, templates, layers, palettes, fonts, graphics, blocks, `RendererService` (CSS vars + interpolation) |
 | **Analytics** | ✅ Complete | 48 passing | SNS/SQS consumer, atomic snapshot upserts, activity feed, open/click/bounce rates |
@@ -27,6 +27,7 @@
 - Go Lambda — SQS trigger → Delivery (batch processor, partial batch failure, concurrent goroutines)
 - Go Lambda — API Gateway trigger → Tracking (sub-100ms HTTP, HMAC tokens, fire-and-forget DB writes) or Webhooks (Twilio sig validation, stdlib Sig V4 SQS)
 - TypeScript/Fastify — SQS consumer + HTTP API → Analytics (background event processing, atomic PostgreSQL upserts, activity feed)
+- TypeScript/Fastify — WebSocket + SQS inbound consumer → Chat (real-time broadcast, find-or-create conversation, Twilio REST outbound)
 
 ---
 
@@ -668,10 +669,11 @@ JSON payload:
 **Language:** TypeScript / Fastify  
 **Deployment:** ECS Fargate  
 **Port:** 3007  
-**Database schema:** `chat.*`
+**Database schema:** `chat.*`  
+**Status:** ✅ Complete — 48 tests passing
 
 #### Purpose
-Real-time two-way conversation management via Twilio SMS and WhatsApp. Handles inbound messages from the Webhook Service, manages conversation state, and delivers real-time updates to dashboard users via WebSocket.
+Real-time two-way conversation management via Twilio SMS and WhatsApp. Handles inbound messages from the Webhook Service (via SQS `chat-inbound` queue), manages conversation state, and delivers real-time updates to dashboard agents via WebSocket. Agents reply outbound via `POST /chat/conversations/:id/messages`.
 
 #### Owns
 ```
@@ -682,13 +684,90 @@ chat.chat_threads
 chat.chat_messages
 chat.chat_identities
 chat.chat_identity_contactables
+chat.chat_groups
+chat.chat_memberships
 ```
 
+#### Internal Package Structure
+
+```
+services/chat/src/
+├── db/
+│   ├── schema.ts             # Drizzle ORM schema (8 tables, tsvector FTS on conversations)
+│   ├── client.ts             # Pool + drizzle client
+│   └── migrate.ts            # Idempotent DDL migration with all indexes
+├── middleware/
+│   └── auth.middleware.ts    # JWT RS256 bearer auth
+├── ws/
+│   └── manager.ts            # WsManager — accountId → Set<WebSocket> broadcast
+├── services/
+│   ├── inbound.events.ts     # InboundEvent type + parseInboundEvent (SNS unwrap)
+│   ├── sources.service.ts    # ChatSource CRUD (Twilio phone numbers)
+│   ├── identities.service.ts # Find-or-create external handle identities
+│   ├── conversations.service.ts  # Find-or-create conversations, status, FTS search
+│   ├── messages.service.ts   # createInbound + sendOutbound (Twilio REST)
+│   ├── inbound.service.ts    # SQS polling loop + end-to-end inbound processing
+│   ├── sqs.receiver.ts       # AWS SDK SQS long-poll receiver
+│   └── twilio.sender.ts      # Twilio REST API HTTP sender (no SDK)
+└── routes/
+    ├── sources.routes.ts       # GET/POST/DELETE /chat/sources
+    ├── conversations.routes.ts # GET/PATCH/POST /chat/conversations
+    ├── messages.routes.ts      # GET/POST /chat/conversations/:id/messages
+    └── ws.routes.ts            # GET /chat/ws (WebSocket upgrade, JWT auth)
+```
+
+#### Inbound Message Pipeline
+
+1. Twilio delivers SMS/WhatsApp to `/webhook/:token` (Webhook Service)
+2. Webhook Service validates Twilio HMAC-SHA1 and publishes to `chat-inbound` SQS queue
+3. `InboundService` long-polls (20s) and calls `processMessage` for each SQS message
+4. `parseInboundEvent` unwraps SNS envelope and validates the `InboundEvent`
+5. `SourcesService.findByHandle` resolves the receiving phone number to a `ChatSource`
+6. `IdentitiesService.findOrCreate` finds or creates the external sender's `ChatIdentity`
+7. `ConversationsService.findOrCreate` finds the open conversation or creates a new one
+8. `MessagesService.createInbound` persists the message record
+9. `ConversationsService.markUnread` stamps `unread_at` + `last_message_at`
+10. `WsManager.broadcast` pushes `{ type: "message", conversationId, message }` to all connected agents for the account
+
 #### WebSocket API
-- Connect: `wss://api.electragram.com/chat/ws?token=<jwt>`
-- Subscribe to account conversations: `{ "action": "subscribe", "accountId": "acc_xxx" }`
-- Receive new message: `{ "type": "message", "conversationId": "...", "message": {...} }`
-- Send message: `POST /api/chat/conversations/:id/messages`
+
+```
+Connect:   wss://api.electragram.com/chat/ws?token=<jwt>
+Auth:      JWT validated inline from query string
+Subscribe: already subscribed on connection (keyed by accountId from JWT)
+Receive:   { "type": "message", "conversationId": "...", "message": { ... } }
+Ping:      send { "action": "ping" } → receive { "type": "pong" }
+```
+
+The `WsManager` maps `accountId → Set<WebSocket>`. On broadcast, it skips closed sockets. Connections are automatically cleaned up on the `close` event.
+
+#### Outbound Reply Flow
+
+```
+POST /chat/conversations/:id/messages { content, fromHandle }
+  → MessagesService.sendOutbound
+    → INSERT chat_messages (status: "pending")
+    → TwilioHttpSender.send (Twilio REST API, no SDK)
+    → UPDATE status "sent" + externalMessageKey = Twilio SID
+    → Return message row
+```
+
+If Twilio fails: message is marked `"failed"` and an error is thrown (HTTP 500 to caller).
+
+#### Endpoints
+
+| Method | Path | Description |
+|---|---|---|
+| GET | `/chat/sources` | List configured Twilio numbers |
+| POST | `/chat/sources` | Register a new source |
+| DELETE | `/chat/sources/:id` | Deactivate source |
+| GET | `/chat/conversations` | List conversations (filter: status, unreadOnly, search) |
+| GET | `/chat/conversations/:id` | Get conversation |
+| PATCH | `/chat/conversations/:id/status` | Resolve / reopen / opt-out |
+| POST | `/chat/conversations/:id/read` | Mark as read |
+| GET | `/chat/conversations/:id/messages` | List messages |
+| POST | `/chat/conversations/:id/messages` | Send outbound reply |
+| GET | `/chat/ws` | WebSocket upgrade (JWT in `?token=`) |
 
 #### Non-functional Requirements
 - New message delivery to dashboard: < 500ms p99
