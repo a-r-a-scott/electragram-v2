@@ -858,6 +858,12 @@ importers:
 
   services/messaging:
     dependencies:
+      '@aws-sdk/client-eventbridge':
+        specifier: 3.992.0
+        version: 3.992.0
+      '@aws-sdk/client-sqs':
+        specifier: 3.992.0
+        version: 3.992.0
       '@electragram/types':
         specifier: workspace:*
         version: link:../../packages/types
@@ -873,6 +879,9 @@ importers:
       fastify:
         specifier: ^5.2.1
         version: 5.7.4
+      jose:
+        specifier: ^5.9.6
+        version: 5.10.0
       nanoid:
         specifier: ^5.0.9
         version: 5.1.6
@@ -892,6 +901,9 @@ importers:
       '@electragram/test-utils':
         specifier: workspace:*
         version: link:../../packages/test-utils
+      '@testcontainers/postgresql':
+        specifier: ^10.16.0
+        version: 10.28.0
       '@types/node':
         specifier: ^22.10.7
         version: 22.19.11
@@ -901,6 +913,9 @@ importers:
       '@vitest/coverage-v8':
         specifier: ^2.1.8
         version: 2.1.9(vitest@2.1.9(@types/node@22.19.11)(jsdom@26.1.0)(lightningcss@1.27.0)(terser@5.46.0))
+      drizzle-kit:
+        specifier: ^0.30.1
+        version: 0.30.6
       testcontainers:
         specifier: ^10.16.0
         version: 10.28.0
@@ -2511,7 +2526,7 @@ packages:
 
   '@expo/bunyan@4.0.1':
     resolution: {integrity: sha512-+Lla7nYSiHZirgK+U/uYzsLv/X+HaJienbD5AKX1UQZHYfWaP+9uuQluRB4GrEVWF0GZ7vEVp/jzaOT9k/SQlg==}
-    engines: {node: '>=0.10.0'}
+    engines: {'0': node >=0.10.0}
 
   '@expo/cli@0.22.28':
     resolution: {integrity: sha512-lvt72KNitGuixYD2l3SZmRKVu2G4zJpmg5V7WfUBNpmUU5oODBw/6qmiJ6kSLAlfDozscUk+BBGknBBzxUrwrA==}
@@ -3920,6 +3935,9 @@ packages:
     resolution: {integrity: sha512-0Lu6y5t+tvlTJMTO7oh5NSpJfpg/5D41LlThfepTixPYkJ0sE2Jj0m0f6yYqujBwIXlId87e234+MxG3D3g7kg==}
     peerDependencies:
       react: ^18 || ^19
+
+  '@testcontainers/postgresql@10.28.0':
+    resolution: {integrity: sha512-NN25rruG5D4Q7pCNIJuHwB+G85OSeJ3xHZ2fWx0O6sPoPEfCYwvpj8mq99cyn68nxFkFYZeyrZJtSFO+FnydiA==}
 
   '@testcontainers/postgresql@11.12.0':
     resolution: {integrity: sha512-w4ZK0H+WIYBUBk57H9wCSxPMSMZUNsFpx2MZAX4iru0Aevz9HFWDfAhFLAu+/SwsHtEJUD7XfWUDlqBGC3OF0Q==}
@@ -13432,6 +13450,15 @@ snapshots:
     dependencies:
       '@tanstack/query-core': 5.90.20
       react: 19.2.4
+
+  '@testcontainers/postgresql@10.28.0':
+    dependencies:
+      testcontainers: 10.28.0
+    transitivePeerDependencies:
+      - bare-abort-controller
+      - bare-buffer
+      - react-native-b4a
+      - supports-color
 
   '@testcontainers/postgresql@11.12.0':
     dependencies:
