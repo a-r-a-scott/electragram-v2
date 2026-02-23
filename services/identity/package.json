@@ -19,9 +19,9 @@
   },
   "dependencies": {
     "@electragram/types": "workspace:*",
-    "@aws-sdk/client-kms": "^3.717.0",
-    "@aws-sdk/client-secrets-manager": "^3.717.0",
-    "@aws-sdk/client-ses": "^3.717.0",
+    "@aws-sdk/client-kms": "3.992.0",
+    "@aws-sdk/client-secrets-manager": "3.992.0",
+    "@aws-sdk/client-ses": "3.992.0",
     "drizzle-orm": "^0.38.3",
     "fastify": "^5.2.1",
     "@fastify/cors": "^10.0.2",

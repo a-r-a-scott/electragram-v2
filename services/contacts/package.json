@@ -17,8 +17,8 @@
   },
   "dependencies": {
     "@electragram/types": "workspace:*",
-    "@aws-sdk/client-eventbridge": "^3.717.0",
-    "@aws-sdk/client-sqs": "^3.717.0",
+    "@aws-sdk/client-eventbridge": "3.992.0",
+    "@aws-sdk/client-sqs": "3.992.0",
     "drizzle-orm": "^0.38.3",
     "fastify": "^5.2.1",
     "@fastify/cors": "^10.0.2",
