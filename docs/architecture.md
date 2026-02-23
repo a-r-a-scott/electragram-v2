@@ -23,8 +23,9 @@
 | **Media** | 🔧 Scaffold | — | S3 presign, CSV import, exports |
 
 **Reference patterns:**
-- TypeScript/Fastify ECS service → see Identity, Events, or Messaging
-- Go Lambda service → see Delivery
+- TypeScript/Fastify ECS service → Identity (auth + RBAC), Events (CRUD + state machine), Messaging (async SQS dispatch)
+- Go Lambda — SQS trigger → Delivery (batch processor, partial batch failure, concurrent goroutines)
+- Go Lambda — API Gateway trigger → Tracking (sub-100ms HTTP, HMAC tokens, fire-and-forget DB writes)
 
 ---
 
@@ -99,27 +100,33 @@
 
 ### API Gateway Route Map
 
-| Path Prefix | Target Service | Auth Required |
-|---|---|---|
-| `/api/auth/*` | Identity Service | No (public) |
-| `/api/accounts/*` | Identity Service | Yes |
-| `/api/users/*` | Identity Service | Yes |
-| `/api/contacts/*` | Contacts Service | Yes |
-| `/api/contact-lists/*` | Contacts Service | Yes |
-| `/api/events/*` | Events Service | Yes |
-| `/api/public/events/*` | Events Service | No (public) |
-| `/api/door/*` | Events Service | Greeter token |
-| `/api/messages/*` | Messaging Service | Yes |
-| `/api/triggers/*` | Messaging Service | Yes |
-| `/api/chat/*` | Chat Service | Yes |
-| `/api/integrations/*` | Integrations Service | Yes |
-| `/api/themes/*` | Design Service | Yes |
-| `/api/design/*` | Design Service | Yes |
-| `/api/analytics/*` | Analytics Service | Yes |
-| `/api/activities/*` | Analytics Service | Yes |
-| `/api/media/*` | Media Service | Yes |
-| `/hooks/*` | Webhook Service | Provider sig |
-| `/track/*` | Tracking Service | No (public) |
+| Path Prefix | Target Service | Auth Required | Notes |
+|---|---|---|---|
+| `/api/auth/*` | Identity Service | No | Sign-in, sign-up, OAuth, magic link, password reset |
+| `/api/accounts/*` | Identity Service | Yes | Account management |
+| `/api/users/*` | Identity Service | Yes | User profile |
+| `/api/me` | Identity Service | Yes | Current user |
+| `/api/contacts/*` | Contacts Service | Yes | Contacts CRUD + search |
+| `/api/contact-lists/*` | Contacts Service | Yes | Lists + members |
+| `/api/contact-fields/*` | Contacts Service | Yes | Custom fields |
+| `/api/events/*` | Events Service | Yes | Events, guests, forms, pages, lists |
+| `/api/public/pages/:slug` | Events Service | No | Public event pages |
+| `/api/door/*` | Events Service | Greeter token | Check-in app |
+| `/api/messages/*` | Messaging Service | Yes | Message lifecycle |
+| `/api/templates/*` | Messaging Service | Yes | Reusable templates |
+| `/api/unsubscribes/*` | Messaging Service | Yes | Unsubscribe management |
+| `/public/unsubscribe` | Messaging Service | No | One-click unsubscribe |
+| `/api/chat/*` | Chat Service | Yes | Conversations + messages |
+| `/api/integrations/*` | Integrations Service | Yes | CRM connections + sync |
+| `/api/themes/*` | Design Service | Yes | Theme management |
+| `/api/design/*` | Design Service | Yes | Blocks + templates |
+| `/api/analytics/*` | Analytics Service | Yes | Message metrics |
+| `/api/activities/*` | Analytics Service | Yes | Activity feed |
+| `/api/media/*` | Media Service | Yes | Uploads + exports |
+| `/hooks/twilio/*` | Webhook Service | Provider sig | Twilio signature validation |
+| `/track/open/*` | Tracking Service | No | Open pixel (1×1 GIF) |
+| `/track/go/*` | Tracking Service | No | Click redirect |
+| `/track/unsubscribe/*` | Tracking Service | No | Unsubscribe page + confirm |
 
 ---
 
@@ -128,37 +135,32 @@
 ```
 electragram-v2/
 ├── apps/
-│   ├── web/                        # Next.js 15 dashboard app
-│   ├── mobile/                     # React Native (Expo SDK 52)
-│   └── public-pages/               # Next.js public event pages
+│   ├── web/                        # Next.js 15 App Router dashboard
+│   └── mobile/                     # React Native (Expo SDK 52)
 ├── services/
-│   ├── identity/                   # TypeScript/Fastify
-│   ├── contacts/                   # TypeScript/Fastify
-│   ├── events/                     # TypeScript/Fastify
-│   ├── messaging/                  # TypeScript/Fastify
-│   ├── chat/                       # TypeScript/Fastify + WS
-│   ├── integrations/               # TypeScript/Fastify
-│   ├── design/                     # TypeScript/Fastify
-│   ├── analytics/                  # TypeScript/Fastify
-│   ├── delivery/                   # Go
-│   ├── tracking/                   # Go
-│   ├── webhooks/                   # Go
-│   └── media/                      # TypeScript/Lambda
+│   ├── identity/                   # TypeScript/Fastify — ECS Fargate  ✅
+│   ├── contacts/                   # TypeScript/Fastify — ECS Fargate  ✅
+│   ├── events/                     # TypeScript/Fastify — ECS Fargate  ✅
+│   ├── messaging/                  # TypeScript/Fastify — ECS Fargate  ✅
+│   ├── delivery/                   # Go — Lambda (SQS trigger)         ✅
+│   ├── tracking/                   # Go — Lambda (API Gateway trigger) ✅
+│   ├── chat/                       # TypeScript/Fastify — ECS Fargate  🔧
+│   ├── integrations/               # TypeScript/Fastify — ECS Fargate  🔧
+│   ├── design/                     # TypeScript/Fastify — ECS Fargate  🔧
+│   ├── analytics/                  # TypeScript/Fastify — ECS Fargate  🔧
+│   ├── webhooks/                   # Go — Lambda (API Gateway trigger) 🔧
+│   └── media/                      # TypeScript — Lambda               🔧
 ├── packages/
-│   ├── ui/                         # Shared React web components
-│   ├── ui-native/                  # React Native components
-│   ├── api-client/                 # Generated OpenAPI client
-│   ├── types/                      # Shared TypeScript types
-│   ├── test-utils/                 # Shared test utilities
-│   └── config/                     # ESLint, TSConfig, Tailwind presets
+│   ├── types/                      # Shared TypeScript types + Zod schemas
+│   ├── test-utils/                 # Shared test factories, DB helpers
+│   └── config/                     # ESLint, TSConfig, Vitest presets
 ├── infra/
 │   └── cdk/                        # AWS CDK stacks (TypeScript)
 ├── .github/
-│   └── workflows/                  # GitHub Actions CI/CD
+│   └── workflows/                  # GitHub Actions CI/CD pipelines
 ├── docs/
-│   ├── analysis.md
-│   ├── architecture.md
-│   └── microservices/              # Per-service PRDs
+│   ├── analysis.md                 # Rails → microservices migration analysis
+│   └── architecture.md             # This file
 ├── turbo.json
 ├── package.json
 ├── pnpm-workspace.yaml

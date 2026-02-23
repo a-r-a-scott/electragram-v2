@@ -29,7 +29,7 @@ electragram-v2/
 │   ├── events/           # Events, guests, forms, pages — TypeScript/Fastify  ✅
 │   ├── messaging/        # Messages, templates, dispatch — TypeScript/Fastify ✅
 │   ├── delivery/         # Email/SMS/WhatsApp sending — Go/Lambda             ✅
-│   ├── tracking/         # Open pixel, click redirect — Go/Lambda             🔧
+│   ├── tracking/         # Open pixel, click redirect — Go/Lambda             ✅
 │   ├── chat/             # Real-time conversations — TypeScript/Fastify       🔧
 │   ├── integrations/     # CRM integrations — TypeScript/Fastify              🔧
 │   ├── design/           # Themes, templates, blocks — TypeScript/Fastify     🔧
@@ -63,7 +63,10 @@ electragram-v2/
 | **Webhooks** | 🔧 Stub | Go/Lambda | — | Twilio webhook receiver |
 | **Media** | 🔧 Stub | TypeScript/Lambda | — | S3 uploads, exports |
 
-**Reference implementations:** Identity, Contacts, Events, Messaging, and Delivery serve as the canonical patterns for TypeScript/Fastify and Go/Lambda services respectively.
+**Reference implementations:**
+- **TypeScript/Fastify ECS service** → Identity (auth), Events (CRUD + state machine), or Messaging (async dispatch)
+- **Go Lambda (SQS trigger)** → Delivery (batch processor, partial failure handling)
+- **Go Lambda (API Gateway trigger)** → Tracking (low-latency HTTP, token validation, async DB writes)
 
 ---
 
@@ -73,7 +76,7 @@ electragram-v2/
 
 - Node.js 22+
 - pnpm 9+
-- Go 1.23+
+- Go 1.26+
 - Docker + Docker Compose
 - AWS CLI (for deployment)
 
@@ -141,6 +144,10 @@ SENDGRID_API_KEY=SG.xxx
 TWILIO_ACCOUNT_SID=ACxxx
 TWILIO_AUTH_TOKEN=xxx
 TWILIO_FROM_NUMBER=+15551234567
+
+# Tracking (shared with Messaging service — must match)
+TRACKING_HMAC_SECRET=a-long-random-secret-min-32-chars
+BASE_URL=https://electragram.io
 ```
 
 ---
@@ -310,8 +317,9 @@ pnpm --filter @electragram/infra-cdk deploy:production
 2. All PRs must pass the CI gate: lint → typecheck → unit tests → integration tests → CDK tests
 3. Coverage thresholds are enforced — builds fail below threshold
 4. Follow the service patterns:
-   - **TypeScript/Fastify services:** use Identity or Events as the reference
-   - **Go Lambda services:** use Delivery as the reference
+   - **TypeScript/Fastify ECS:** use Identity or Events as the reference
+   - **Go Lambda (SQS trigger):** use Delivery as the reference
+   - **Go Lambda (API Gateway trigger):** use Tracking as the reference
 5. Commit message format: `feat(service): description` / `fix(service): description`
 
 ---
