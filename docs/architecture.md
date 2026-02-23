@@ -16,7 +16,7 @@
 | **Delivery** | ✅ Complete | 30 passing | SendGrid + Twilio, partial batch failure, Go/Lambda |
 | **Tracking** | ✅ Complete | 57 passing (handler 98%) | Open pixel, click redirect, HMAC-signed tokens, unsubscribe confirm |
 | **Chat** | ✅ Complete | 48 passing | WebSocket broadcast, SQS inbound consumer, conversations, inbound/outbound messages, Twilio HTTP sender |
-| **Integrations** | 🔧 Scaffold | — | HubSpot, Mailchimp, Salesforce |
+| **Integrations** | ✅ Complete | 47 passing | OAuth 2.0 + API key connect, AES-256-GCM credentials, ProviderKit sync (HubSpot, Mailchimp, Google Sheets, Klaviyo) |
 | **Design** | ✅ Complete | 61 passing | Themes, templates, layers, palettes, fonts, graphics, blocks, `RendererService` (CSS vars + interpolation) |
 | **Analytics** | ✅ Complete | 48 passing | SNS/SQS consumer, atomic snapshot upserts, activity feed, open/click/bounce rates |
 | **Webhooks** | ✅ Complete | 47 passing (handler 95.9%) | Twilio HMAC-SHA1 sig validation, SQS routing (no external SDK) |
@@ -28,6 +28,7 @@
 - Go Lambda — API Gateway trigger → Tracking (sub-100ms HTTP, HMAC tokens, fire-and-forget DB writes) or Webhooks (Twilio sig validation, stdlib Sig V4 SQS)
 - TypeScript/Fastify — SQS consumer + HTTP API → Analytics (background event processing, atomic PostgreSQL upserts, activity feed)
 - TypeScript/Fastify — WebSocket + SQS inbound consumer → Chat (real-time broadcast, find-or-create conversation, Twilio REST outbound)
+- TypeScript/Fastify — OAuth 2.0 + ProviderKit strategy → Integrations (pluggable provider adapters, AES-256-GCM credentials, paginated contact sync)
 
 ---
 
@@ -781,33 +782,123 @@ If Twilio fails: message is marked `"failed"` and an error is thrown (HTTP 500 t
 **Language:** TypeScript / Fastify  
 **Deployment:** ECS Fargate  
 **Port:** 3008  
-**Database schema:** `integrations.*`
+**Database schema:** `integrations.*`  
+**Status:** ✅ Complete — 47 tests passing
 
 #### Purpose
-Manages all third-party CRM and marketing platform integrations. Handles OAuth flows, credential storage, and bi-directional contact/list syncing via the ProviderKit abstraction.
+Manages all third-party CRM and marketing platform integrations. Handles OAuth 2.0 and API key connect flows, secure AES-256-GCM credential storage, and bi-directional contact syncing via the ProviderKit abstraction.
 
 #### Owns
 ```
-integrations.integrations
-integrations.account_integrations
-integrations.credentials
-integrations.provider_refs
-integrations.spreadsheets
+integrations.integrations          — Provider catalog (HubSpot, Mailchimp, etc.)
+integrations.account_integrations  — Per-account connection state + sync timestamps
+integrations.credentials           — OAuth tokens + API keys (secrets AES-256-GCM encrypted)
+integrations.provider_refs         — Maps internal record IDs to external CRM IDs
+integrations.spreadsheets          — Google Sheets / CSV connections with column mappings
+```
+
+#### Internal Package Structure
+```
+services/integrations/src/
+├── db/
+│   ├── schema.ts              # 5 Drizzle ORM table definitions
+│   ├── client.ts              # PG pool + drizzle instance
+│   └── migrate.ts             # Idempotent DDL + provider catalog seed
+├── middleware/
+│   └── auth.middleware.ts     # JWT RS256 bearer authentication
+├── providers/
+│   ├── provider-kit.ts        # ProviderKit interface (startOAuth, completeOAuth,
+│   │                          #   refreshToken, fetchContacts, fetchLists)
+│   ├── catalog.ts             # Static provider catalog (seeded to DB at startup)
+│   ├── hubspot.provider.ts    # HubSpot OAuth 2.0 + CRM API v3
+│   ├── mailchimp.provider.ts  # Mailchimp OAuth 2.0 + audience/member API
+│   ├── google-sheets.provider.ts  # Google OAuth 2.0 + Sheets API v4
+│   ├── klaviyo.provider.ts    # Klaviyo API key + Profiles/Lists API
+│   └── index.ts               # Provider registry (getProvider, listProviders)
+├── services/
+│   ├── errors.ts              # NotFoundError, ValidationError, etc.
+│   ├── crypto.ts              # AES-256-GCM encrypt/decrypt for credential secrets
+│   ├── credentials.service.ts       # CRUD, encrypt-on-write, decrypt-on-read
+│   ├── account-integrations.service.ts  # Connect/disconnect, sync status
+│   ├── provider-refs.service.ts     # Upsert external↔internal record mapping
+│   └── sync.service.ts              # Contact sync orchestrator (paginated pull + import)
+├── routes/
+│   ├── integrations.routes.ts   # GET /integrations (catalog), /connected CRUD
+│   ├── oauth.routes.ts          # GET /oauth/start/:provider, /oauth/callback/:provider
+│   └── sync.routes.ts           # POST /connected/:id/sync
+├── app.ts                       # Fastify app builder
+└── index.ts                     # Entry point, env validation
 ```
 
 #### Supported Providers
-- HubSpot (contacts, companies, lists)
-- Mailchimp (contacts, audiences)
-- Klaviyo (profiles, lists)
-- Customer.io (people, segments)
-- Salesforce (contacts, leads)
-- Google Sheets (bidirectional sync)
-- Google OAuth (contact import)
+| Provider | Auth Kind | Contacts | Lists |
+|---|---|---|---|
+| HubSpot | OAuth 2.0 | ✅ CRM API v3 | ✅ |
+| Mailchimp | OAuth 2.0 | ✅ Members API | ✅ Audiences |
+| Google Sheets | OAuth 2.0 | ✅ Row-based import | — |
+| Klaviyo | API Key | ✅ Profiles API | ✅ |
+| Salesforce | OAuth 2.0 | Scaffold | — |
+| Customer.io | API Key | Scaffold | — |
+| Google Contacts | OAuth 2.0 | Scaffold | — |
+
+#### OAuth Connect Flow
+```
+1. GET /integrations/oauth/start/:provider
+   → Signs state JWT (accountId + provider + nonce)
+   → Returns 302 redirect to provider authorization URL
+
+2. Provider redirects to GET /integrations/oauth/callback/:provider?code=...&state=...
+   → Validates state payload, exchanges code for tokens
+   → Stores encrypted credentials (AES-256-GCM)
+   → Creates/updates account_integrations row (status: active)
+   → Redirects to /settings/integrations?connected=<provider>
+```
+
+#### Credential Encryption
+All OAuth tokens and API keys are stored encrypted in the `credentials.secrets` column using AES-256-GCM with a 256-bit key from the `ENCRYPTION_KEY` env var. The format is `<iv_hex>:<tag_hex>:<ciphertext_hex>`. Each encrypt call uses a fresh random IV.
+
+#### ProviderKit Pattern
+Every provider implements the same interface, making `SyncService` provider-agnostic:
+```typescript
+interface ProviderKit {
+  startOAuth(opts: OAuthStartOptions): string;
+  completeOAuth(opts: OAuthCompleteOptions): Promise<OAuthTokens>;
+  refreshToken(secrets, clientId, clientSecret): Promise<OAuthTokens>;
+  fetchContacts(secrets, cursor?): Promise<ContactPage>;
+  fetchLists(secrets): Promise<ProviderList[]>;
+}
+```
+New providers are added by implementing this interface and registering in `providers/index.ts`.
+
+#### Contact Sync Pipeline
+```
+POST /connected/:id/sync
+  → Resolve credential + secrets (decrypt)
+  → Loop: provider.fetchContacts(cursor) until no nextCursor
+    → For each contact:
+      → contactsImporter.upsert({ accountId, email, ... })  ← calls Contacts service
+      → providerRefs.upsert({ externalKey, recordId, ... })  ← store mapping
+  → markSyncComplete / markSyncError
+```
+
+#### Endpoints
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/health` | Health check |
+| `GET` | `/integrations` | List available providers (catalog) |
+| `GET` | `/integrations/connected` | List account's active connections |
+| `GET` | `/integrations/connected/:id` | Get single connection |
+| `DELETE` | `/integrations/connected/:id` | Disconnect integration |
+| `POST` | `/integrations/:key/connect/api-key` | Connect with an API key |
+| `GET` | `/integrations/oauth/start/:provider` | Begin OAuth flow (redirect) |
+| `GET` | `/integrations/oauth/callback/:provider` | OAuth callback handler |
+| `POST` | `/integrations/connected/:id/sync` | Trigger contact sync |
 
 #### Non-functional Requirements
 - OAuth callback: < 2 seconds
 - Sync job (1k contacts): < 60 seconds
 - 99.5% availability SLO
+- Credential secrets never logged or returned in API responses
 
 ---
 

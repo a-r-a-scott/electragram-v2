@@ -56,10 +56,10 @@ electragram-v2/
 | **Messaging** | ✅ Complete | TypeScript/Fastify | 82 unit + integration | Templates, messages, scheduling, SQS dispatch, unsubscribes |
 | **Delivery** | ✅ Complete | Go/Lambda | 30 passing (worker 100%) | SendGrid email, Twilio SMS/WhatsApp, partial batch failure |
 | **Tracking** | ✅ Complete | Go/Lambda | 57 passing (handler 98%) | Open pixel, click redirect, unsubscribe page/confirm, HMAC tokens |
-| **Chat** | 🔧 Stub | TypeScript/Fastify | — | Real-time WebSocket conversations |
-| **Integrations** | 🔧 Stub | TypeScript/Fastify | — | HubSpot, Mailchimp, Salesforce |
+| **Chat** | ✅ Complete | TypeScript/Fastify | 48 passing | Real-time WebSocket conversations, SQS inbound consumer, Twilio outbound |
+| **Integrations** | ✅ Complete | TypeScript/Fastify | 47 passing | HubSpot, Mailchimp, Google Sheets, Klaviyo — OAuth + API key + ProviderKit sync |
 | **Design** | ✅ Complete | TypeScript/Fastify | 61 passing | Themes, templates, layers, fonts, palettes, graphics, blocks, email renderer |
-| **Analytics** | 🔧 Stub | TypeScript/Fastify | — | Metrics, activity feed, snapshots |
+| **Analytics** | ✅ Complete | TypeScript/Fastify | 48 passing | SNS event consumer, snapshot counter upserts, activity feed, summary rates |
 | **Webhooks** | ✅ Complete | Go/Lambda | 47 passing (handler 95.9%) | Twilio sig validation (HMAC-SHA1), route to SQS |
 | **Media** | 🔧 Stub | TypeScript/Lambda | — | S3 uploads, exports |
 
@@ -70,6 +70,7 @@ electragram-v2/
 - **TypeScript/Fastify — renderer pattern** → Design (template rendering, CSS variable injection, interpolation pipeline)
 - **TypeScript/Fastify — SQS consumer + HTTP API** → Analytics (background SNS event processing, atomic counter upserts, activity feed)
 - **TypeScript/Fastify — WebSocket + SQS consumer** → Chat (real-time message broadcast, inbound Twilio routing, find-or-create conversation)
+- **TypeScript/Fastify — OAuth + ProviderKit strategy** → Integrations (OAuth 2.0 connect flows, API key auth, pluggable provider adapters, contact sync)
 
 ---
 

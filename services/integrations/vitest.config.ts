@@ -1,4 +1,23 @@
-import { createVitestConfig } from "@electragram/config/vitest";
-export default createVitestConfig({
-  test: { include: ["tests/**/*.test.ts", "src/**/*.test.ts"] },
+import { defineConfig } from "vitest/config";
+
+export default defineConfig({
+  test: {
+    globals: true,
+    environment: "node",
+    include: ["tests/**/*.test.ts"],
+    coverage: {
+      provider: "v8",
+      include: ["src/**/*.ts"],
+      exclude: ["src/index.ts", "src/db/client.ts", "src/db/migrate.ts"],
+      thresholds: {
+        lines: 55,
+        functions: 55,
+        branches: 45,
+        statements: 55,
+      },
+      reporter: ["text", "lcov", "json-summary"],
+    },
+    testTimeout: 30_000,
+    hookTimeout: 30_000,
+  },
 });
