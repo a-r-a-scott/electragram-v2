@@ -18,7 +18,7 @@
 | **Chat** | 🔧 Scaffold | — | WebSocket, Twilio inbound |
 | **Integrations** | 🔧 Scaffold | — | HubSpot, Mailchimp, Salesforce |
 | **Design** | ✅ Complete | 61 passing | Themes, templates, layers, palettes, fonts, graphics, blocks, `RendererService` (CSS vars + interpolation) |
-| **Analytics** | 🔧 Scaffold | — | Delivery metrics, activity feed |
+| **Analytics** | ✅ Complete | 48 passing | SNS/SQS consumer, atomic snapshot upserts, activity feed, open/click/bounce rates |
 | **Webhooks** | ✅ Complete | 47 passing (handler 95.9%) | Twilio HMAC-SHA1 sig validation, SQS routing (no external SDK) |
 | **Media** | 🔧 Scaffold | — | S3 presign, CSV import, exports |
 
@@ -26,6 +26,7 @@
 - TypeScript/Fastify ECS service → Identity (auth + RBAC), Events (CRUD + state machine), Messaging (async SQS dispatch)
 - Go Lambda — SQS trigger → Delivery (batch processor, partial batch failure, concurrent goroutines)
 - Go Lambda — API Gateway trigger → Tracking (sub-100ms HTTP, HMAC tokens, fire-and-forget DB writes) or Webhooks (Twilio sig validation, stdlib Sig V4 SQS)
+- TypeScript/Fastify — SQS consumer + HTTP API → Analytics (background event processing, atomic PostgreSQL upserts, activity feed)
 
 ---
 
@@ -824,10 +825,11 @@ Preview mode (`preview: true`) preserves `{{placeholders}}` visibly — used by 
 **Language:** TypeScript / Fastify  
 **Deployment:** ECS Fargate  
 **Port:** 3010  
-**Database schema:** `analytics.*`
+**Database schema:** `analytics.*`  
+**Status:** ✅ Complete — 48 tests passing
 
 #### Purpose
-Consumes delivery outcome events from SNS, aggregates metrics into snapshots, and serves dashboard insights and activity feeds.
+Consumes delivery and tracking events from an SQS queue (backed by SNS), atomically upserts daily snapshot counters, records the account activity feed, and serves dashboard insights (per-message breakdown, aggregate rates).
 
 #### Owns
 ```
@@ -835,12 +837,78 @@ analytics.message_analytics_snapshots
 analytics.activities
 ```
 
-#### SNS Topics Consumed
-- `delivery.DeliveryCompleted` → update snapshot + activity
-- `delivery.EmailOpened` → update snapshot
-- `delivery.LinkClicked` → update snapshot
-- `delivery.Bounced` → update snapshot
-- `delivery.Unsubscribed` → update snapshot + suppress contact
+#### Internal Package Structure
+
+```
+services/analytics/src/
+├── db/
+│   ├── schema.ts                 # Drizzle ORM schema (2 tables)
+│   ├── client.ts                 # Pool + drizzle client
+│   └── migrate.ts                # Idempotent DDL migration
+├── middleware/
+│   └── auth.middleware.ts        # JWT RS256 bearer auth (shared pattern)
+├── services/
+│   ├── events.ts                 # DeliveryEvent type + parseEventBody (SNS unwrap)
+│   ├── snapshots.service.ts      # Atomic upsert counters + list/summarise
+│   ├── activities.service.ts     # Activity feed record/list
+│   ├── consumer.service.ts       # SQS polling loop + processMessage dispatch
+│   └── sqs.receiver.ts           # AWS SDK SQS receiver (production)
+└── routes/
+    ├── snapshots.routes.ts       # GET /analytics/messages/:id/snapshots|summary
+    └── activities.routes.ts      # GET /analytics/activities (cursor-paginated)
+```
+
+#### Event Processing Pipeline
+
+1. Delivery / Tracking services publish events to `delivery-events` / `tracking-events` SNS topics
+2. Both topics fan out to the `analytics-events` SQS queue
+3. `ConsumerService` long-polls (20s) the queue in a background loop (alongside the HTTP server)
+4. `parseEventBody` unwraps the SNS envelope and validates the inner `DeliveryEvent`
+5. `SnapshotsService.increment` executes a PostgreSQL `INSERT … ON CONFLICT DO UPDATE` to atomically increment the appropriate counter column
+6. `ActivitiesService.record` inserts an activity row for recordable event kinds (`sent`, `delivered`, `failed`, `bounced`, `cancelled`, `unsubscribed`)
+7. On success the message is deleted from SQS; on processing error it is left in the queue for automatic retry
+
+#### Snapshot Counter Columns
+
+| Event Kind | Counter Incremented |
+|---|---|
+| `sent` | `sends` |
+| `delivered` | `deliveries` |
+| `bounced` | `bounces` |
+| `spam_report` | `spam_reports` |
+| `failed` | `failures` |
+| `cancelled` | `cancels` |
+| `opened` | `opens` + `total_opens` |
+| `clicked` | `clicks` + `total_clicks` + `links[url]` |
+| `unsubscribed` | `unsubscribes` |
+
+Upsert key: `(channel, message_id, day, interval=0)` — matching the unique constraint from the Rails schema.
+
+#### Event Format
+
+```json
+{
+  "kind": "delivered|failed|bounced|spam_report|opened|clicked|unsubscribed|sent|cancelled",
+  "messageId": "msg_01J...",
+  "accountId": "acc_01J...",
+  "channel": "email|sms|whatsapp",
+  "recipientId": "rec_01J...",       // optional
+  "recipientType": "contact|guest",  // optional
+  "day": "2025-01-15",               // optional — defaults to UTC today
+  "url": "https://...",              // clicked events only
+  "details": {}
+}
+```
+
+Both direct JSON and SNS notification envelope format are handled.
+
+#### Endpoints
+
+| Method | Path | Description |
+|---|---|---|
+| GET | `/analytics/messages/:messageId/snapshots` | Daily breakdown (filter by channel) |
+| GET | `/analytics/messages/:messageId/summary` | Aggregate totals + open/click/bounce rates |
+| GET | `/analytics/activities` | Account activity feed (cursor pagination, filter by actor) |
 
 #### Non-functional Requirements
 - Event processing lag: < 10 seconds from delivery event to snapshot update

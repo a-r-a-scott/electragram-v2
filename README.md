@@ -33,7 +33,7 @@ electragram-v2/
 │   ├── chat/             # Real-time conversations — TypeScript/Fastify       🔧
 │   ├── integrations/     # CRM integrations — TypeScript/Fastify              🔧
 │   ├── design/           # Themes, templates, blocks — TypeScript/Fastify     ✅
-│   ├── analytics/        # Metrics, activity feed — TypeScript/Fastify        🔧
+│   ├── analytics/        # Metrics, activity feed — TypeScript/Fastify        ✅
 │   ├── webhooks/         # Incoming Twilio webhooks — Go/Lambda               ✅
 │   └── media/            # File uploads, exports — TypeScript/Lambda          🔧
 ├── packages/
@@ -68,6 +68,7 @@ electragram-v2/
 - **Go Lambda (SQS trigger)** → Delivery (batch processor, partial failure handling)
 - **Go Lambda (API Gateway trigger)** → Tracking (low-latency HTTP, HMAC tokens, async DB writes) or Webhooks (Twilio signature validation, SQS routing)
 - **TypeScript/Fastify — renderer pattern** → Design (template rendering, CSS variable injection, interpolation pipeline)
+- **TypeScript/Fastify — SQS consumer + HTTP API** → Analytics (background SNS event processing, atomic counter upserts, activity feed)
 
 ---
 
@@ -155,6 +156,9 @@ TWILIO_WEBHOOK_TOKEN=your-webhook-registration-token
 TWILIO_WEBHOOK_BASE_URL=https://api.electragram.io
 CHAT_INBOUND_QUEUE_URL=https://sqs.us-east-1.amazonaws.com/123456789/chat-inbound
 DELIVERY_STATUS_QUEUE_URL=https://sqs.us-east-1.amazonaws.com/123456789/delivery-status
+
+# Analytics
+ANALYTICS_QUEUE_URL=https://sqs.us-east-1.amazonaws.com/123456789/analytics-events
 ```
 
 ---
