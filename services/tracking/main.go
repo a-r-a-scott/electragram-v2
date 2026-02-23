@@ -2,50 +2,57 @@ package main
 
 import (
 	"context"
-	"encoding/base64"
-	"log"
-	"net/http"
+	"log/slog"
 	"os"
 
 	"github.com/aws/aws-lambda-go/events"
 	"github.com/aws/aws-lambda-go/lambda"
+
+	dbpkg "github.com/a-r-a-scott/electragram-v2/services/tracking/internal/db"
+	"github.com/a-r-a-scott/electragram-v2/services/tracking/internal/handler"
 )
 
-// 1x1 transparent GIF
-var transparentGIF, _ = base64.StdEncoding.DecodeString("R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7")
+func main() {
+	log := slog.New(slog.NewJSONHandler(os.Stdout, nil))
 
-func handler(ctx context.Context, req events.APIGatewayProxyRequest) (events.APIGatewayProxyResponse, error) {
-	path := req.Path
-	log.Printf("tracking request: %s", path)
+	// ── Database ──────────────────────────────────────────────────────────────
+	dbClient, err := dbpkg.New(mustEnv("DATABASE_URL"))
+	if err != nil {
+		log.Error("failed to connect to database", "error", err)
+		os.Exit(1)
+	}
+	defer dbClient.Close()
 
-	switch {
-	case len(path) > 11 && path[:11] == "/track/open":
-		// TODO: async record open
-		return events.APIGatewayProxyResponse{
-			StatusCode: http.StatusOK,
-			Headers: map[string]string{
-				"Content-Type":  "image/gif",
-				"Cache-Control": "no-cache, no-store",
-			},
-			Body:            base64.StdEncoding.EncodeToString(transparentGIF),
-			IsBase64Encoded: true,
-		}, nil
-
-	case len(path) > 9 && path[:9] == "/track/go":
-		// TODO: async record click, get real URL
-		return events.APIGatewayProxyResponse{
-			StatusCode: http.StatusFound,
-			Headers:    map[string]string{"Location": "https://electragram.com"},
-		}, nil
+	// Add tracking columns to message_recipients if they don't exist yet.
+	// Runs on every cold start; idempotent (ADD COLUMN IF NOT EXISTS).
+	if err := dbClient.Migrate(context.Background()); err != nil {
+		log.Error("migration failed", "error", err)
+		os.Exit(1)
 	}
 
-	return events.APIGatewayProxyResponse{StatusCode: http.StatusNotFound}, nil
+	// ── Handler ───────────────────────────────────────────────────────────────
+	secret := []byte(mustEnv("TRACKING_HMAC_SECRET"))
+	baseURL := envOrDefault("BASE_URL", "https://electragram.io")
+
+	h := handler.New(dbClient, secret, baseURL, log)
+
+	lambda.Start(func(ctx context.Context, req events.APIGatewayProxyRequest) (events.APIGatewayProxyResponse, error) {
+		return h.Handle(ctx, req)
+	})
 }
 
-func main() {
-	if os.Getenv("AWS_LAMBDA_FUNCTION_NAME") != "" {
-		lambda.Start(handler)
-	} else {
-		log.Println("Tracking service running in local mode")
+func mustEnv(key string) string {
+	v := os.Getenv(key)
+	if v == "" {
+		slog.Default().Error("required env var not set", "key", key)
+		os.Exit(1)
 	}
+	return v
+}
+
+func envOrDefault(key, def string) string {
+	if v := os.Getenv(key); v != "" {
+		return v
+	}
+	return def
 }

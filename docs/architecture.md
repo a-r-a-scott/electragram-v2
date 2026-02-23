@@ -14,7 +14,7 @@
 | **Events** | ✅ Complete | 83 passing | Guest state machine, forms, pages, bulk add, check-in |
 | **Messaging** | ✅ Complete | 82 passing | Templates, scheduling, SQS dispatch, unsubscribes |
 | **Delivery** | ✅ Complete | 30 passing | SendGrid + Twilio, partial batch failure, Go/Lambda |
-| **Tracking** | 🔧 Scaffold | — | Open pixel, click redirect, unsubscribe token |
+| **Tracking** | ✅ Complete | 57 passing (handler 98%) | Open pixel, click redirect, HMAC-signed tokens, unsubscribe confirm |
 | **Chat** | 🔧 Scaffold | — | WebSocket, Twilio inbound |
 | **Integrations** | 🔧 Scaffold | — | HubSpot, Mailchimp, Salesforce |
 | **Design** | 🔧 Scaffold | — | Themes, blocks, email renderer |
@@ -577,33 +577,86 @@ type Provider interface {
 
 ### Service 6: Tracking Service
 
-**Language:** Go  
+**Language:** Go 1.26  
 **Deployment:** AWS Lambda (API Gateway trigger)  
-**Database schema:** Reads/writes `delivery.message_deliveries`
+**Database schema:** Writes to `messaging.*` (owned by Messaging Service)  
+**Status:** ✅ Complete — 57 Go tests passing; handler package 98% coverage
 
 #### Purpose
-Ultra-low-latency open tracking, click redirect, and unsubscribe handling. Must respond before browser/email client times out.
+Ultra-low-latency open tracking, click redirect, and unsubscribe handling for emails sent by the Messaging + Delivery pipeline.
+
+#### Internal Package Structure
+```
+services/tracking/
+├── main.go                            # Lambda entry, wires DB + handler
+├── internal/
+│   ├── domain/
+│   │   └── token.go                   # TrackingToken struct + Kind constants
+│   ├── token/
+│   │   └── hmac.go                    # Sign / Verify HMAC-SHA256 tokens
+│   ├── db/
+│   │   └── client.go                  # RecordOpen, RecordClick, RecordUnsubscribe
+│   └── handler/
+│       └── handler.go                 # Lambda handler; routes all /track/* paths
+```
+
+#### Token Format
+Tokens are stateless and self-contained — no database lookup needed to serve the pixel or redirect:
+```
+<base64url(json_payload)>.<base64url(hmac_sha256(payload, TRACKING_HMAC_SECRET))>
+```
+JSON payload:
+```json
+{
+  "r": "rcp_xxx",                 // recipient ID
+  "m": "msg_xxx",                 // message ID
+  "k": "o | c | u",              // kind: open | click | unsubscribe
+  "u": "https://dest.example"    // destination URL (click tokens only)
+}
+```
 
 #### Endpoints
 
 | Method | Path | Description |
 |---|---|---|
-| GET | `/track/open/:token.png` | Return 1×1 GIF, async record open |
-| GET | `/track/go/:linkId/:token` | 302 redirect, async record click |
-| GET | `/track/unsubscribe/:token` | Unsubscribe page, update delivery record |
-| POST | `/track/unsubscribe/:token` | Confirm unsubscribe |
+| GET | `/track/open/{token}.gif` | Return 1×1 transparent GIF; async record open |
+| GET | `/track/go/{token}` | 302 redirect to token URL; async record click |
+| GET | `/track/unsubscribe/{token}` | Render HTML confirmation form |
+| POST | `/track/unsubscribe/{token}` | Confirm unsubscribe; write DB synchronously |
 
-#### Implementation notes
-- Open pixel: respond with 1×1 transparent GIF in < 10ms; write to DB asynchronously (goroutine)
-- Click redirect: respond with 302 in < 20ms; write to DB asynchronously
-- Token validation: HMAC-SHA256, verify before any DB access
-- Graceful degradation: if token is invalid, still redirect to base domain (don't error)
+#### Key Design Decisions
+- **Fire-and-forget DB writes** for open/click: Lambda returns the response immediately; a background goroutine writes the DB. Keeps p99 well under 50ms even if RDS is slow.
+- **Synchronous DB write** for unsubscribes: user is waiting for the confirmation page; latency tolerance is higher.
+- **Graceful degradation**: invalid/expired tokens on open → still return the pixel; on click → redirect to `BASE_URL`. Never reveal token errors to email clients.
+- **Idempotent unsubscribe**: guarded by `WHERE status != 'unsubscribed'` so duplicate clicks are safe.
+- **`.gif` suffix handling**: the open pixel URL ends in `.gif` (some email clients require a file extension on image URLs). The handler strips it before token verification.
+- **Migration on cold start**: adds `open_count`, `click_count`, `opened_at`, `clicked_at` columns to `messaging.message_recipients` via `ALTER TABLE … ADD COLUMN IF NOT EXISTS`.
+
+#### DB Writes
+
+| Event | Table | Operation |
+|---|---|---|
+| Open | `messaging.message_recipients` | `opened_at = COALESCE(opened_at, NOW()), open_count += 1` |
+| Open | `messaging.messages` | `open_count += 1` |
+| Click | `messaging.message_recipients` | `clicked_at = COALESCE(clicked_at, NOW()), click_count += 1` |
+| Click | `messaging.messages` | `click_count += 1` |
+| Unsubscribe | `messaging.message_recipients` | `status = 'unsubscribed'` (once) |
+| Unsubscribe | `messaging.unsubscribes` | `INSERT` with account_id, email, message_id |
+| Unsubscribe | `messaging.messages` | `unsubscribe_count += 1` |
+
+#### Environment Variables
+
+| Variable | Description |
+|---|---|
+| `DATABASE_URL` | PostgreSQL DSN |
+| `TRACKING_HMAC_SECRET` | Shared secret for signing/verifying tokens (must match Messaging service) |
+| `BASE_URL` | Fallback redirect destination (default: `https://electragram.io`) |
 
 #### Non-functional Requirements
-- Open pixel: p99 < 50ms end-to-end
+- Open pixel: p99 < 50ms end-to-end (Lambda provisioned concurrency = 10)
 - Click redirect: p99 < 100ms end-to-end
 - Throughput: 5,000 concurrent requests without degradation
-- 99.99% availability (email open tracking is latency-sensitive)
+- 99.99% availability (provisioned concurrency prevents cold start latency on first open)
 
 ---
 

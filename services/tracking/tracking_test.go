@@ -1,45 +1,35 @@
 package main
 
 import (
-	"context"
-	"net/http"
+	"os"
 	"testing"
-
-	"github.com/aws/aws-lambda-go/events"
 )
 
-func TestHandler_TrackOpen(t *testing.T) {
-	req := events.APIGatewayProxyRequest{Path: "/track/open/abc123"}
-	resp, err := handler(context.Background(), req)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if resp.StatusCode != http.StatusOK {
-		t.Errorf("expected 200, got %d", resp.StatusCode)
-	}
-	if resp.Headers["Content-Type"] != "image/gif" {
-		t.Errorf("expected image/gif content-type, got %s", resp.Headers["Content-Type"])
+func TestEnvOrDefault_ReturnsValueWhenSet(t *testing.T) {
+	os.Setenv("TEST_TRACKING_VAR", "hello")
+	defer os.Unsetenv("TEST_TRACKING_VAR")
+
+	got := envOrDefault("TEST_TRACKING_VAR", "default")
+	if got != "hello" {
+		t.Errorf("expected hello, got %s", got)
 	}
 }
 
-func TestHandler_TrackClick(t *testing.T) {
-	req := events.APIGatewayProxyRequest{Path: "/track/go/abc123"}
-	resp, err := handler(context.Background(), req)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if resp.StatusCode != http.StatusFound {
-		t.Errorf("expected 302, got %d", resp.StatusCode)
+func TestEnvOrDefault_ReturnsDefaultWhenUnset(t *testing.T) {
+	os.Unsetenv("TEST_TRACKING_VAR_MISSING")
+
+	got := envOrDefault("TEST_TRACKING_VAR_MISSING", "fallback")
+	if got != "fallback" {
+		t.Errorf("expected fallback, got %s", got)
 	}
 }
 
-func TestHandler_UnknownPath(t *testing.T) {
-	req := events.APIGatewayProxyRequest{Path: "/unknown"}
-	resp, err := handler(context.Background(), req)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if resp.StatusCode != http.StatusNotFound {
-		t.Errorf("expected 404, got %d", resp.StatusCode)
+func TestEnvOrDefault_EmptyValueUsesDefault(t *testing.T) {
+	os.Setenv("TEST_TRACKING_EMPTY", "")
+	defer os.Unsetenv("TEST_TRACKING_EMPTY")
+
+	got := envOrDefault("TEST_TRACKING_EMPTY", "used-default")
+	if got != "used-default" {
+		t.Errorf("expected used-default, got %s", got)
 	}
 }

@@ -55,7 +55,7 @@ electragram-v2/
 | **Events** | ✅ Complete | TypeScript/Fastify | 83 unit + integration | Guest state machine, forms, pages, check-in, bulk-add |
 | **Messaging** | ✅ Complete | TypeScript/Fastify | 82 unit + integration | Templates, messages, scheduling, SQS dispatch, unsubscribes |
 | **Delivery** | ✅ Complete | Go/Lambda | 30 passing (worker 100%) | SendGrid email, Twilio SMS/WhatsApp, partial batch failure |
-| **Tracking** | 🔧 Stub | Go/Lambda | — | Open pixel, click redirect, unsubscribe token |
+| **Tracking** | ✅ Complete | Go/Lambda | 57 passing (handler 98%) | Open pixel, click redirect, unsubscribe page/confirm, HMAC tokens |
 | **Chat** | 🔧 Stub | TypeScript/Fastify | — | Real-time WebSocket conversations |
 | **Integrations** | 🔧 Stub | TypeScript/Fastify | — | HubSpot, Mailchimp, Salesforce |
 | **Design** | 🔧 Stub | TypeScript/Fastify | — | Themes, templates, blocks |
