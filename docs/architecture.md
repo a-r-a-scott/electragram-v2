@@ -17,7 +17,7 @@
 | **Tracking** | ✅ Complete | 57 passing (handler 98%) | Open pixel, click redirect, HMAC-signed tokens, unsubscribe confirm |
 | **Chat** | 🔧 Scaffold | — | WebSocket, Twilio inbound |
 | **Integrations** | 🔧 Scaffold | — | HubSpot, Mailchimp, Salesforce |
-| **Design** | 🔧 Scaffold | — | Themes, blocks, email renderer |
+| **Design** | ✅ Complete | 61 passing | Themes, templates, layers, palettes, fonts, graphics, blocks, `RendererService` (CSS vars + interpolation) |
 | **Analytics** | 🔧 Scaffold | — | Delivery metrics, activity feed |
 | **Webhooks** | ✅ Complete | 47 passing (handler 95.9%) | Twilio HMAC-SHA1 sig validation, SQS routing (no external SDK) |
 | **Media** | 🔧 Scaffold | — | S3 presign, CSV import, exports |
@@ -146,7 +146,7 @@ electragram-v2/
 │   ├── tracking/                   # Go — Lambda (API Gateway trigger) ✅
 │   ├── chat/                       # TypeScript/Fastify — ECS Fargate  🔧
 │   ├── integrations/               # TypeScript/Fastify — ECS Fargate  🔧
-│   ├── design/                     # TypeScript/Fastify — ECS Fargate  🔧
+│   ├── design/                     # TypeScript/Fastify — ECS Fargate  ✅
 │   ├── analytics/                  # TypeScript/Fastify — ECS Fargate  🔧
 │   ├── webhooks/                   # Go — Lambda (API Gateway trigger) ✅
 │   └── media/                      # TypeScript — Lambda               🔧
@@ -736,22 +736,81 @@ integrations.spreadsheets
 **Language:** TypeScript / Fastify  
 **Deployment:** ECS Fargate  
 **Port:** 3009  
-**Database schema:** `design.*`
+**Database schema:** `design.*`  
+**Status:** ✅ Complete — 61 tests passing
 
 #### Purpose
-Theme, template, and block management. Renders HTML email templates for the Delivery Service. Provides the block-based content editor API.
+Theme, template, and block management. Renders HTML email templates for the Delivery Service. Provides the block-based content editor API. The `RendererService` is the integration point between design assets and outbound email — called by the Delivery service just before sending each message.
 
 #### Owns
 ```
+design.color_palettes
+design.fonts
+design.font_stacks
+design.graphics
 design.themes
 design.theme_templates
 design.theme_layers
-design.color_palettes
-design.font_stacks
-design.fonts
-design.graphics
 design.blocks
 ```
+
+#### Internal Package Structure
+
+```
+services/design/src/
+├── db/
+│   ├── schema.ts           # Drizzle ORM schema for all 8 tables
+│   ├── client.ts           # Pool + drizzle client
+│   └── migrate.ts          # Idempotent DDL migration
+├── middleware/
+│   └── auth.middleware.ts  # JWT RS256 bearer auth (shared pattern)
+├── services/
+│   ├── themes.service.ts          # CRUD + FTS search + publish/archive lifecycle
+│   ├── templates.service.ts       # CRUD + variable key extraction
+│   ├── layers.service.ts          # SVG layer CRUD under template
+│   ├── color-palettes.service.ts  # CRUD
+│   ├── font-stacks.service.ts     # CRUD
+│   ├── fonts.service.ts           # CRUD (shared + account-specific)
+│   ├── graphics.service.ts        # SVG graphic CRUD
+│   ├── blocks.service.ts          # Polymorphic content block CRUD + reorder
+│   └── renderer.service.ts        # ← KEY: email HTML rendering for Delivery
+└── routes/                        # 8 route files (one per domain)
+```
+
+#### Renderer Pipeline (`RendererService.render`)
+
+Called by Delivery service at `POST /templates/:templateId/render`:
+
+1. Load `theme_template` record by ID
+2. Load associated `theme` → `color_palette` + `font_stack` → `fonts`
+3. Build CSS custom properties (`--color-primary`, `--font-primary`, etc.) from palette/stack
+4. Wrap `body_html` in a 600px-max email skeleton with inline CSS variables
+5. If `preview: false`: interpolate `{{variable}}` placeholders with provided values
+6. Return `{ html, subject, preheader, bodyText, fromName, fromEmail, missingVariables }`
+
+Preview mode (`preview: true`) preserves `{{placeholders}}` visibly — used by the editor.
+
+#### Endpoints
+
+| Method | Path | Description |
+|---|---|---|
+| GET | `/themes` | List themes (search, filter by kind/status/shared) |
+| POST | `/themes` | Create theme |
+| GET/PATCH/DELETE | `/themes/:themeId` | Get / update / delete theme |
+| POST | `/themes/:themeId/publish` | Activate theme |
+| POST | `/themes/:themeId/archive` | Archive theme |
+| GET/POST | `/themes/:themeId/templates` | List / create templates |
+| GET/PATCH/DELETE | `/themes/:themeId/templates/:templateId` | Get / update / delete template |
+| POST | `/themes/:themeId/templates/:templateId/render` | Render template HTML |
+| POST | `/templates/:templateId/render` | **Shortcut for Delivery service** (no themeId required) |
+| GET/POST | `/themes/:themeId/templates/:templateId/layers` | List / create SVG layers |
+| GET/PATCH/DELETE | `/themes/:themeId/templates/:templateId/layers/:layerId` | Layer CRUD |
+| GET/POST/PATCH/DELETE | `/color-palettes[/:paletteId]` | Color palette CRUD |
+| GET/POST/PATCH/DELETE | `/font-stacks[/:stackId]` | Font stack CRUD |
+| GET/POST/PATCH/DELETE | `/fonts[/:fontId]` | Font CRUD |
+| GET/POST/PATCH/DELETE | `/graphics[/:graphicId]` | Graphic CRUD |
+| GET/POST/PATCH/DELETE | `/blocks[/:blockId]` | Block CRUD |
+| POST | `/blocks/reorder` | Reorder blocks by position |
 
 #### Non-functional Requirements
 - Template render (for email): < 200ms p99

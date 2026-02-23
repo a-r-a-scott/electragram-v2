@@ -32,7 +32,7 @@ electragram-v2/
 │   ├── tracking/         # Open pixel, click redirect — Go/Lambda             ✅
 │   ├── chat/             # Real-time conversations — TypeScript/Fastify       🔧
 │   ├── integrations/     # CRM integrations — TypeScript/Fastify              🔧
-│   ├── design/           # Themes, templates, blocks — TypeScript/Fastify     🔧
+│   ├── design/           # Themes, templates, blocks — TypeScript/Fastify     ✅
 │   ├── analytics/        # Metrics, activity feed — TypeScript/Fastify        🔧
 │   ├── webhooks/         # Incoming Twilio webhooks — Go/Lambda               ✅
 │   └── media/            # File uploads, exports — TypeScript/Lambda          🔧
@@ -58,7 +58,7 @@ electragram-v2/
 | **Tracking** | ✅ Complete | Go/Lambda | 57 passing (handler 98%) | Open pixel, click redirect, unsubscribe page/confirm, HMAC tokens |
 | **Chat** | 🔧 Stub | TypeScript/Fastify | — | Real-time WebSocket conversations |
 | **Integrations** | 🔧 Stub | TypeScript/Fastify | — | HubSpot, Mailchimp, Salesforce |
-| **Design** | 🔧 Stub | TypeScript/Fastify | — | Themes, templates, blocks |
+| **Design** | ✅ Complete | TypeScript/Fastify | 61 passing | Themes, templates, layers, fonts, palettes, graphics, blocks, email renderer |
 | **Analytics** | 🔧 Stub | TypeScript/Fastify | — | Metrics, activity feed, snapshots |
 | **Webhooks** | ✅ Complete | Go/Lambda | 47 passing (handler 95.9%) | Twilio sig validation (HMAC-SHA1), route to SQS |
 | **Media** | 🔧 Stub | TypeScript/Lambda | — | S3 uploads, exports |
@@ -67,6 +67,7 @@ electragram-v2/
 - **TypeScript/Fastify ECS service** → Identity (auth), Events (CRUD + state machine), or Messaging (async dispatch)
 - **Go Lambda (SQS trigger)** → Delivery (batch processor, partial failure handling)
 - **Go Lambda (API Gateway trigger)** → Tracking (low-latency HTTP, HMAC tokens, async DB writes) or Webhooks (Twilio signature validation, SQS routing)
+- **TypeScript/Fastify — renderer pattern** → Design (template rendering, CSS variable injection, interpolation pipeline)
 
 ---
 

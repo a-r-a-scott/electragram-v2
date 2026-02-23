@@ -517,6 +517,9 @@ importers:
       fastify:
         specifier: ^5.2.1
         version: 5.7.4
+      jose:
+        specifier: ^5.9.6
+        version: 5.10.0
       nanoid:
         specifier: ^5.0.9
         version: 5.1.6
@@ -536,6 +539,9 @@ importers:
       '@electragram/test-utils':
         specifier: workspace:*
         version: link:../../packages/test-utils
+      '@testcontainers/postgresql':
+        specifier: ^10.16.0
+        version: 10.28.0
       '@types/node':
         specifier: ^22.10.7
         version: 22.19.11
@@ -545,6 +551,9 @@ importers:
       '@vitest/coverage-v8':
         specifier: ^2.1.8
         version: 2.1.9(vitest@2.1.9(@types/node@22.19.11)(jsdom@26.1.0)(lightningcss@1.27.0)(terser@5.46.0))
+      drizzle-kit:
+        specifier: ^0.30.1
+        version: 0.30.6
       testcontainers:
         specifier: ^10.16.0
         version: 10.28.0
