@@ -1,6 +1,6 @@
 # Electragram v2
 
-A modern AWS-hosted microservices platform for event management and multi-channel communication (Email, SMS, WhatsApp). Supports web (Next.js 15) and native mobile (React Native/Expo) clients.
+A modern AWS-hosted microservices platform for event management and multi-channel communication (Email, SMS, WhatsApp). Supports web (Next.js 15) and native mobile (React Native/Expo) clients. Migrated from a Ruby on Rails monolith.
 
 ## Architecture
 
@@ -14,37 +14,58 @@ A modern AWS-hosted microservices platform for event management and multi-channe
 See [docs/architecture.md](docs/architecture.md) for the full architecture and microservices catalogue.  
 See [docs/analysis.md](docs/analysis.md) for the migration analysis from the Rails monolith.
 
+---
+
 ## Monorepo Structure
 
 ```
 electragram-v2/
 ├── apps/
-│   ├── web/              # Next.js 15 dashboard
-│   ├── mobile/           # React Native (Expo SDK 52)
-│   └── public-pages/     # Public event pages
+│   ├── web/              # Next.js 15 App Router dashboard
+│   └── mobile/           # React Native (Expo SDK 52)
 ├── services/
-│   ├── identity/         # Auth, users, accounts, RBAC (TS/Fastify) — COMPLETE
-│   ├── contacts/         # Contacts, lists, custom fields (TS/Fastify) — COMPLETE
-│   ├── events/           # Events, guests, forms, pages (TS/Fastify)
-│   ├── messaging/        # Messages, releases, triggers (TS/Fastify)
-│   ├── chat/             # Real-time conversations (TS/Fastify)
-│   ├── integrations/     # CRM integrations (TS/Fastify)
-│   ├── design/           # Themes, templates, blocks (TS/Fastify)
-│   ├── analytics/        # Metrics, activity feed (TS/Fastify)
-│   ├── delivery/         # Email/SMS/WhatsApp sending (Go/Lambda)
-│   ├── tracking/         # Open pixel, click redirect (Go/Lambda)
-│   ├── webhooks/         # Incoming Twilio webhooks (Go/Lambda)
-│   └── media/            # File uploads, exports (TS/Lambda)
+│   ├── identity/         # Auth, users, accounts, RBAC — TypeScript/Fastify  ✅
+│   ├── contacts/         # Contacts, lists, custom fields — TypeScript/Fastify ✅
+│   ├── events/           # Events, guests, forms, pages — TypeScript/Fastify  ✅
+│   ├── messaging/        # Messages, templates, dispatch — TypeScript/Fastify ✅
+│   ├── delivery/         # Email/SMS/WhatsApp sending — Go/Lambda             ✅
+│   ├── tracking/         # Open pixel, click redirect — Go/Lambda             🔧
+│   ├── chat/             # Real-time conversations — TypeScript/Fastify       🔧
+│   ├── integrations/     # CRM integrations — TypeScript/Fastify              🔧
+│   ├── design/           # Themes, templates, blocks — TypeScript/Fastify     🔧
+│   ├── analytics/        # Metrics, activity feed — TypeScript/Fastify        🔧
+│   ├── webhooks/         # Incoming Twilio webhooks — Go/Lambda               🔧
+│   └── media/            # File uploads, exports — TypeScript/Lambda          🔧
 ├── packages/
-│   ├── types/            # Shared TypeScript types (Zod schemas)
-│   ├── ui/               # Shared React web components
-│   ├── ui-native/        # Shared React Native components
-│   ├── api-client/       # Generated OpenAPI client
-│   ├── test-utils/       # Shared test factories and helpers
+│   ├── types/            # Shared TypeScript types and Zod schemas
+│   ├── test-utils/       # Shared test factories, DB helpers, AWS mocks
 │   └── config/           # ESLint, TSConfig, Vitest presets
 └── infra/
     └── cdk/              # AWS CDK stacks (TypeScript)
 ```
+
+---
+
+## Service Implementation Status
+
+| Service | Status | Language | Tests | Description |
+|---|---|---|---|---|
+| **Identity** | ✅ Complete | TypeScript/Fastify | 83+ passing | JWT auth (RS256), Google OAuth, account management, RBAC |
+| **Contacts** | ✅ Complete | TypeScript/Fastify | 80+ passing | CRUD, deduplication, lists, custom fields, full-text search |
+| **Events** | ✅ Complete | TypeScript/Fastify | 83 unit + integration | Guest state machine, forms, pages, check-in, bulk-add |
+| **Messaging** | ✅ Complete | TypeScript/Fastify | 82 unit + integration | Templates, messages, scheduling, SQS dispatch, unsubscribes |
+| **Delivery** | ✅ Complete | Go/Lambda | 30 passing (worker 100%) | SendGrid email, Twilio SMS/WhatsApp, partial batch failure |
+| **Tracking** | 🔧 Stub | Go/Lambda | — | Open pixel, click redirect, unsubscribe token |
+| **Chat** | 🔧 Stub | TypeScript/Fastify | — | Real-time WebSocket conversations |
+| **Integrations** | 🔧 Stub | TypeScript/Fastify | — | HubSpot, Mailchimp, Salesforce |
+| **Design** | 🔧 Stub | TypeScript/Fastify | — | Themes, templates, blocks |
+| **Analytics** | 🔧 Stub | TypeScript/Fastify | — | Metrics, activity feed, snapshots |
+| **Webhooks** | 🔧 Stub | Go/Lambda | — | Twilio webhook receiver |
+| **Media** | 🔧 Stub | TypeScript/Lambda | — | S3 uploads, exports |
+
+**Reference implementations:** Identity, Contacts, Events, Messaging, and Delivery serve as the canonical patterns for TypeScript/Fastify and Go/Lambda services respectively.
+
+---
 
 ## Quick Start
 
@@ -59,152 +80,243 @@ electragram-v2/
 ### Local Development
 
 ```bash
-# Install dependencies
+# Install all dependencies
 pnpm install
 
-# Start infrastructure (Postgres, Redis, LocalStack)
+# Start local infrastructure (Postgres, Redis, LocalStack)
 docker compose up -d postgres redis localstack
 
-# Start all services
+# Run database migrations for all services
+pnpm db:migrate
+
+# Start all services in watch mode
 pnpm dev
 
-# Or start a specific service
-pnpm --filter @electragram/identity-service dev
+# Or start a single service
+pnpm --filter @electragram/events-service dev
 ```
 
-Services will be available at:
-- Identity: http://localhost:3001
-- Contacts: http://localhost:3002
-- Events: http://localhost:3003
-- Messaging: http://localhost:3004
-- Chat: http://localhost:3007
-- Integrations: http://localhost:3008
-- Design: http://localhost:3009
-- Analytics: http://localhost:3010
-- Web app: http://localhost:3000
+Service ports:
 
-### Environment Setup
+| Service | Port |
+|---|---|
+| Web app | 3000 |
+| Identity | 3001 |
+| Contacts | 3002 |
+| Events | 3003 |
+| Messaging | 3004 |
+| Chat | 3007 |
+| Integrations | 3008 |
+| Design | 3009 |
+| Analytics | 3010 |
+
+### Environment Variables
 
 ```bash
 cp .env.example .env
 # Edit .env with your local values
 ```
 
+Key variables:
+
+```env
+# Database
+DATABASE_URL=postgres://postgres:postgres@localhost:5432/electragram
+
+# JWT (generate with: openssl genrsa 2048 | openssl pkcs8 -topk8 -nocrypt)
+JWT_PRIVATE_KEY_PEM=...
+JWT_PUBLIC_KEY_PEM=...
+
+# AWS (LocalStack for local dev)
+AWS_REGION=us-east-1
+AWS_ACCESS_KEY_ID=test
+AWS_SECRET_ACCESS_KEY=test
+SQS_ENDPOINT=http://localhost:4566
+SQS_QUEUE_URL=http://localhost:4566/000000000000/delivery-queue
+
+# SendGrid (email delivery)
+SENDGRID_API_KEY=SG.xxx
+
+# Twilio (SMS/WhatsApp delivery)
+TWILIO_ACCOUNT_SID=ACxxx
+TWILIO_AUTH_TOKEN=xxx
+TWILIO_FROM_NUMBER=+15551234567
+```
+
+---
+
 ## Testing
 
-### Run all tests
-```bash
-pnpm test
+### Test pyramid
+
+```
+              ┌───────────────────────────┐
+              │   E2E (Playwright/Detox)  │  ← /apps/web, /apps/mobile
+              ├───────────────────────────┤
+              │  Contract (Pact)          │  ← service-to-service API boundaries
+              ├───────────────────────────┤
+              │  Integration (TC/Postgres)│  ← each TS service
+              ├───────────────────────────┤
+              │  Unit (Vitest / go test)  │  ← all packages + services
+              └───────────────────────────┘
 ```
 
-### Unit tests only (fast, no Docker required)
+### Run all unit tests (no Docker required — fast)
+
 ```bash
 pnpm test:unit
+# Go services
+cd services/delivery && go test ./...
+cd services/tracking && go test ./...
 ```
 
-### Integration tests (requires Docker)
+### Run integration tests (requires Docker for Testcontainers)
+
 ```bash
 pnpm test:integration
 ```
 
-### E2E tests (web)
+### Run everything
+
 ```bash
-pnpm --filter @electragram/web test:e2e
+pnpm test
 ```
 
-### E2E tests (mobile)
+### E2E tests
+
 ```bash
+# Web (Playwright)
+pnpm --filter @electragram/web test:e2e
+
+# Mobile (Detox — requires simulator)
 pnpm --filter @electragram/mobile test:e2e:ios
 pnpm --filter @electragram/mobile test:e2e:android
 ```
 
-### Load tests
+### Load tests (requires k6)
+
 ```bash
-# Requires k6 installed
 k6 run services/delivery/tests/load/delivery.k6.js
 k6 run services/tracking/tests/load/tracking.k6.js
 ```
 
-### Coverage Requirements
-
-All services enforce **100% line/branch/function coverage** via CI. Builds fail below threshold.
+### Coverage thresholds
 
 | Layer | Tool | Threshold |
 |---|---|---|
-| TypeScript services | Vitest + c8 | 100% |
-| Go services | go test -cover | 100% |
-| React web | Vitest + RTL | 100% |
-| React Native | Jest + RNTL | 100% |
-| CDK infra | Vitest + CDK Assertions | 100% |
+| TypeScript services | Vitest + v8 | ≥ 80% (lines/functions/branches) |
+| Go services | `go test -cover` | ≥ 80% (worker/handler packages: 100%) |
+| React web | Vitest + RTL | ≥ 80% |
+| React Native | Jest + RNTL | ≥ 80% |
+| CDK infra | Vitest + CDK Assertions | ≥ 80% |
 
-## Deployment
+Coverage is enforced in CI — builds fail below threshold.
 
-### Staging (auto, on push to `main`)
-```bash
-git push origin main
-# GitHub Actions deploys all changed services
-```
-
-### Production (manual)
-```bash
-git push origin production
-# Or trigger via GitHub Actions workflow_dispatch
-```
-
-### Infrastructure (CDK)
-```bash
-# Deploy all stacks to staging
-pnpm --filter @electragram/infra-cdk deploy:staging
-
-# Deploy to production
-pnpm --filter @electragram/infra-cdk deploy:production
-```
-
-## Service Implementation Status
-
-| Service | Status | Description |
-|---|---|---|
-| Identity | ✅ Complete | JWT auth, Google OAuth, RBAC |
-| Contacts | ✅ Complete | CRUD, deduplication, lists |
-| Events | 🔧 Stub | Guest lifecycle, forms, pages |
-| Messaging | 🔧 Stub | Messages, releases, triggers |
-| Chat | 🔧 Stub | Real-time conversations |
-| Integrations | 🔧 Stub | HubSpot, Mailchimp, etc. |
-| Design | 🔧 Stub | Themes, templates, blocks |
-| Analytics | 🔧 Stub | Metrics, snapshots |
-| Delivery | 🔧 Stub | SendGrid, Twilio (Go) |
-| Tracking | 🔧 Stub | Open pixel, redirects (Go) |
-| Webhooks | 🔧 Stub | Twilio webhooks (Go) |
-| Media | 🔧 Stub | S3 uploads, exports |
-
-See [Identity Service](services/identity/) and [Contacts Service](services/contacts/) as the **reference implementation** for the pattern to follow when implementing stub services.
+---
 
 ## Technology Stack
 
 | Layer | Technology |
 |---|---|
-| API services | TypeScript 5.7 / Fastify 5 |
-| High-throughput | Go 1.23 / AWS Lambda |
-| Web frontend | Next.js 15 / React 19 |
-| Mobile | React Native 0.76 / Expo SDK 52 |
-| Database | PostgreSQL 16 / Drizzle ORM |
-| Cache | Redis 7 / ElastiCache |
-| Queue | AWS SQS |
-| Events | AWS SNS + EventBridge |
-| Auth | JWT RS256 / AWS Secrets Manager |
-| Storage | AWS S3 + CloudFront |
-| Infrastructure | AWS CDK (TypeScript) |
-| CI/CD | GitHub Actions |
-| Testing | Vitest, Testcontainers, Playwright, Detox, Pact, k6 |
+| **API services** | TypeScript 5.7 / Fastify 5 / Drizzle ORM |
+| **High-throughput Lambda** | Go 1.26 / AWS Lambda |
+| **Web frontend** | Next.js 15 / React 19 / App Router / Tailwind CSS / shadcn/ui |
+| **Mobile** | React Native 0.76 / Expo SDK 52 / Expo Router / NativeWind |
+| **State management** | Zustand / TanStack Query v5 |
+| **Database** | PostgreSQL 16 / per-service schemas / `tsvector` full-text search |
+| **Cache** | Redis 7 / ElastiCache |
+| **Queue** | AWS SQS FIFO (delivery) + standard (events) |
+| **Pub/Sub** | AWS SNS + EventBridge |
+| **Auth** | JWT RS256 / `jose` / AWS Lambda Authorizer |
+| **Email delivery** | SendGrid v3 Mail Send API |
+| **SMS/WhatsApp** | Twilio Messaging API |
+| **Storage** | AWS S3 + CloudFront |
+| **Infrastructure** | AWS CDK (TypeScript) — VPC, ECS Fargate, Lambda, RDS, ElastiCache |
+| **CI/CD** | GitHub Actions → ECR → ECS rolling deploy |
+| **Testing** | Vitest, Testcontainers, `go test` + testify, Playwright, Detox, Pact, k6 |
+| **Monorepo** | Turborepo + pnpm workspaces |
+
+---
+
+## Inter-Service Communication
+
+### Synchronous (REST)
+
+All authenticated REST calls carry a JWT bearer token. The API Gateway Lambda Authorizer validates the token before forwarding to the target service.
+
+| Consumer | Provider | Key calls |
+|---|---|---|
+| Events | Identity | Validate account membership |
+| Messaging | Events | Look up event guest lists for recipient expansion |
+| Delivery | Messaging | Write back recipient delivery status |
+| Tracking | Messaging | Write back open/click counters |
+
+### Asynchronous (SQS/SNS/EventBridge)
+
+| Queue / Topic | Producer | Consumer | Purpose |
+|---|---|---|---|
+| `delivery-queue` (SQS FIFO) | Messaging Service | Delivery Lambda | Per-recipient send jobs |
+| `tracking-events` (SNS) | Tracking Lambda | Analytics Service | Open/click events |
+| `guest-status-changed` (EventBridge) | Events Service | Messaging Service | RSVP triggers |
+| `message-sent` (EventBridge) | Messaging Service | Analytics Service | Message stats |
+
+---
+
+## Deployment
+
+### Staging (automatic on push to `main`)
+
+```bash
+git push origin main
+# GitHub Actions builds Docker images → pushes to ECR → rolls out ECS services
+```
+
+### Production (manual approval)
+
+```bash
+git push origin production
+# Or trigger via GitHub Actions workflow_dispatch with environment=production
+```
+
+### Infrastructure (CDK)
+
+```bash
+# Bootstrap (one-time per AWS account/region)
+cd infra/cdk && pnpm cdk bootstrap
+
+# Deploy staging
+pnpm --filter @electragram/infra-cdk deploy:staging
+
+# Deploy production
+pnpm --filter @electragram/infra-cdk deploy:production
+```
+
+### CDK Stacks
+
+| Stack | Resources |
+|---|---|
+| `NetworkStack` | VPC, subnets, security groups, NAT Gateway |
+| `DatabaseStack` | RDS PostgreSQL 16, per-service schemas, parameter groups |
+| `MessagingStack` | SQS queues, SNS topics, EventBridge rules |
+| `ServicesStack` | ECS Fargate cluster, task definitions, IAM roles |
+| `ApiGatewayStack` | REST API Gateway, Lambda Authorizer, routes |
+| `CloudFrontStack` | CloudFront distribution, S3 origin, WAF ACL |
+
+---
 
 ## Contributing
 
 1. Branch from `main`
-2. All PRs must pass the CI gate (lint + typecheck + unit tests + integration tests + CDK tests)
-3. 100% test coverage required — PRs failing below threshold are automatically rejected
-4. Follow the Identity/Contacts service pattern for new service implementations
+2. All PRs must pass the CI gate: lint → typecheck → unit tests → integration tests → CDK tests
+3. Coverage thresholds are enforced — builds fail below threshold
+4. Follow the service patterns:
+   - **TypeScript/Fastify services:** use Identity or Events as the reference
+   - **Go Lambda services:** use Delivery as the reference
+5. Commit message format: `feat(service): description` / `fix(service): description`
+
+---
 
 ## Documentation
 
-- [Migration Analysis](docs/analysis.md)
-- [Architecture & Microservices Catalogue](docs/architecture.md)
+- [Migration Analysis](docs/analysis.md) — current-state inventory, gap analysis, 8 migration risks, 6 ADRs
+- [Architecture & Microservices Catalogue](docs/architecture.md) — full system design, all 12 service PRDs, data model, SLOs
