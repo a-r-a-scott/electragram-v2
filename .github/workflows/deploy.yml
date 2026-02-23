@@ -1,0 +1,247 @@
+name: Deploy
+
+on:
+  push:
+    branches:
+      - main        # deploys to staging
+      - production  # deploys to production
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "Target environment"
+        required: true
+        type: choice
+        options: [staging, production]
+      services:
+        description: "Services to deploy (comma-separated, or 'all')"
+        default: "all"
+        required: true
+
+env:
+  NODE_VERSION: "22"
+  GO_VERSION: "1.23"
+  PNPM_VERSION: "9.15.4"
+  AWS_REGION: us-east-1
+
+jobs:
+  # ─── Determine environment ───────────────────────────────────────────────────
+  setup:
+    name: Setup
+    runs-on: ubuntu-latest
+    outputs:
+      environment: ${{ steps.env.outputs.environment }}
+      services: ${{ steps.services.outputs.list }}
+    steps:
+      - id: env
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "environment=${{ inputs.environment }}" >> $GITHUB_OUTPUT
+          elif [ "${{ github.ref }}" = "refs/heads/production" ]; then
+            echo "environment=production" >> $GITHUB_OUTPUT
+          else
+            echo "environment=staging" >> $GITHUB_OUTPUT
+          fi
+
+      - id: services
+        run: |
+          if [ "${{ github.event.inputs.services }}" = "all" ] || [ -z "${{ github.event.inputs.services }}" ]; then
+            echo 'list=["identity","contacts","events","messaging","chat","integrations","design","analytics","delivery","tracking","webhooks","media","web"]' >> $GITHUB_OUTPUT
+          else
+            SERVICES=$(echo '${{ github.event.inputs.services }}' | jq -R 'split(",") | map(ltrimstr(" ") | rtrimstr(" "))')
+            echo "list=$SERVICES" >> $GITHUB_OUTPUT
+          fi
+
+  # ─── Build & Push Docker images ─────────────────────────────────────────────
+  build-push:
+    name: Build & Push — ${{ matrix.service }}
+    runs-on: ubuntu-latest
+    needs: setup
+    environment: ${{ needs.setup.outputs.environment }}
+    strategy:
+      matrix:
+        service: ${{ fromJson(needs.setup.outputs.services) }}
+      fail-fast: false
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Set image tag
+        id: tag
+        run: echo "tag=${{ steps.login-ecr.outputs.registry }}/electragram/${{ matrix.service }}-service:${{ github.sha }}" >> $GITHUB_OUTPUT
+
+      - name: Build and push (TypeScript services)
+        if: ${{ !contains(fromJson('["delivery","tracking","webhooks"]'), matrix.service) && matrix.service != 'web' }}
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: services/${{ matrix.service }}/Dockerfile
+          target: production
+          push: true
+          tags: |
+            ${{ steps.tag.outputs.tag }}
+            ${{ steps.login-ecr.outputs.registry }}/electragram/${{ matrix.service }}-service:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Build Lambda zip (Go services)
+        if: ${{ contains(fromJson('["delivery","tracking","webhooks"]'), matrix.service) }}
+        working-directory: services/${{ matrix.service }}
+        run: |
+          GOOS=linux GOARCH=arm64 go build -tags lambda.norpc -o bootstrap .
+          zip function.zip bootstrap
+
+      - name: Upload Lambda function code
+        if: ${{ contains(fromJson('["delivery","tracking","webhooks"]'), matrix.service) }}
+        run: |
+          aws lambda update-function-code \
+            --function-name electragram-${{ matrix.service }}-${{ needs.setup.outputs.environment }} \
+            --zip-file fileb://services/${{ matrix.service }}/function.zip \
+            --architectures arm64
+
+  # ─── Deploy to ECS ───────────────────────────────────────────────────────────
+  deploy-ecs:
+    name: Deploy ECS — ${{ matrix.service }}
+    runs-on: ubuntu-latest
+    needs: [setup, build-push]
+    environment: ${{ needs.setup.outputs.environment }}
+    strategy:
+      matrix:
+        service: [identity, contacts, events, messaging, chat, integrations, design, analytics]
+      max-parallel: 4
+    steps:
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Update ECS service
+        run: |
+          aws ecs update-service \
+            --cluster electragram-${{ needs.setup.outputs.environment }} \
+            --service ${{ matrix.service }}-${{ needs.setup.outputs.environment }} \
+            --force-new-deployment
+
+      - name: Wait for service stability
+        run: |
+          aws ecs wait services-stable \
+            --cluster electragram-${{ needs.setup.outputs.environment }} \
+            --services ${{ matrix.service }}-${{ needs.setup.outputs.environment }}
+
+  # ─── Deploy Web App ──────────────────────────────────────────────────────────
+  deploy-web:
+    name: Deploy Web App
+    runs-on: ubuntu-latest
+    needs: [setup, deploy-ecs]
+    environment: ${{ needs.setup.outputs.environment }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Build web app
+        run: pnpm --filter @electragram/web build
+        env:
+          NEXT_PUBLIC_API_URL: ${{ secrets.API_URL }}
+          NEXT_PUBLIC_WS_URL: ${{ secrets.WS_URL }}
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Sync static assets to S3
+        run: |
+          aws s3 sync apps/web/.next/static \
+            s3://${{ secrets.ASSETS_BUCKET }}/_next/static \
+            --cache-control "public,max-age=31536000,immutable"
+
+      - name: Invalidate CloudFront cache
+        run: |
+          aws cloudfront create-invalidation \
+            --distribution-id ${{ secrets.CLOUDFRONT_DISTRIBUTION_ID }} \
+            --paths "/_next/static/*"
+
+  # ─── Deploy CDK Infrastructure ───────────────────────────────────────────────
+  deploy-infra:
+    name: Deploy CDK Infrastructure
+    runs-on: ubuntu-latest
+    needs: setup
+    environment: ${{ needs.setup.outputs.environment }}
+    if: github.event_name == 'workflow_dispatch'
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: CDK Deploy
+        working-directory: infra/cdk
+        run: |
+          pnpm deploy:${{ needs.setup.outputs.environment }}
+        env:
+          CDK_DEFAULT_ACCOUNT: ${{ secrets.AWS_ACCOUNT_ID }}
+          CDK_DEFAULT_REGION: ${{ env.AWS_REGION }}
+
+  # ─── Smoke Tests Post-Deploy ─────────────────────────────────────────────────
+  smoke-tests:
+    name: Smoke Tests
+    runs-on: ubuntu-latest
+    needs: [deploy-ecs, deploy-web]
+    environment: ${{ needs.setup.outputs.environment }}
+    steps:
+      - name: Health check all services
+        run: |
+          BASE="${{ secrets.API_URL }}"
+          SERVICES="identity contacts events messaging chat integrations design analytics"
+          FAILED=0
+          for svc in $SERVICES; do
+            STATUS=$(curl -s -o /dev/null -w "%{http_code}" "${BASE}/health" || echo "000")
+            if [ "$STATUS" != "200" ]; then
+              echo "FAIL: $svc health check returned $STATUS"
+              FAILED=1
+            else
+              echo "OK: $svc"
+            fi
+          done
+          exit $FAILED
+
+  # ─── Nightly Jobs ───────────────────────────────────────────────────────────────
+  # Defined in separate nightly.yml workflow

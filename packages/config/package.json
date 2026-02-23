@@ -1,0 +1,19 @@
+{
+  "name": "@electragram/config",
+  "version": "0.1.0",
+  "private": true,
+  "exports": {
+    "./eslint": "./eslint.js",
+    "./tsconfig": "./tsconfig.base.json",
+    "./tsconfig/service": "./tsconfig.service.json",
+    "./tsconfig/react": "./tsconfig.react.json",
+    "./tailwind": "./tailwind.base.js",
+    "./vitest": "./vitest.base.ts"
+  },
+  "devDependencies": {
+    "@typescript-eslint/eslint-plugin": "^8.19.1",
+    "@typescript-eslint/parser": "^8.19.1",
+    "eslint": "^9.17.0",
+    "eslint-plugin-import": "^2.31.0"
+  }
+}

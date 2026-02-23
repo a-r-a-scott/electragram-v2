@@ -1,0 +1,28 @@
+{
+  "name": "@electragram/infra-cdk",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "tsc",
+    "synth": "cdk synth",
+    "deploy:staging": "cdk deploy --all --context env=staging",
+    "deploy:production": "cdk deploy --all --context env=production",
+    "diff": "cdk diff --all",
+    "test": "vitest run --coverage",
+    "typecheck": "tsc --noEmit",
+    "clean": "rm -rf cdk.out dist"
+  },
+  "dependencies": {
+    "aws-cdk-lib": "^2.175.1",
+    "constructs": "^10.4.2"
+  },
+  "devDependencies": {
+    "@electragram/config": "workspace:*",
+    "@types/node": "^22.10.7",
+    "aws-cdk": "^2.175.1",
+    "typescript": "^5.7.3",
+    "vitest": "^2.1.8",
+    "@vitest/coverage-v8": "^2.1.8"
+  }
+}

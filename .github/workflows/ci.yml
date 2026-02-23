@@ -1,0 +1,280 @@
+name: CI
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  NODE_VERSION: "22"
+  GO_VERSION: "1.23"
+  PNPM_VERSION: "9.15.4"
+
+jobs:
+  # ─── Lint & Typecheck ────────────────────────────────────────────────────────
+  lint:
+    name: Lint & Typecheck
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Typecheck all packages
+        run: pnpm typecheck
+
+      - name: Lint all packages
+        run: pnpm lint
+
+  # ─── Unit Tests ─────────────────────────────────────────────────────────────
+  unit-tests:
+    name: Unit Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Build shared packages
+        run: pnpm --filter @electragram/types build && pnpm --filter @electragram/config build
+
+      - name: Run unit tests (all TS services)
+        run: pnpm test:unit
+        env:
+          NODE_ENV: test
+
+      - name: Upload coverage reports
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: unit-coverage
+          path: "**/coverage/**"
+          retention-days: 7
+
+  # ─── Go Tests ───────────────────────────────────────────────────────────────
+  go-tests:
+    name: Go Tests
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        service: [delivery, tracking, webhooks]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache-dependency-path: services/${{ matrix.service }}/go.sum
+
+      - name: Test ${{ matrix.service }}
+        working-directory: services/${{ matrix.service }}
+        run: |
+          go test ./... -coverprofile=coverage.out -covermode=atomic
+          go tool cover -func=coverage.out | grep total | awk '{if ($3+0 < 100) {print "Coverage below 100%: " $3; exit 1}}'
+
+      - name: Upload Go coverage
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: go-coverage-${{ matrix.service }}
+          path: services/${{ matrix.service }}/coverage.out
+
+  # ─── Integration Tests ──────────────────────────────────────────────────────
+  integration-tests:
+    name: Integration Tests
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        service: [identity, contacts, events, messaging, chat, integrations, design, analytics]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Build shared packages
+        run: pnpm --filter @electragram/types build && pnpm --filter @electragram/config build && pnpm --filter @electragram/test-utils build
+
+      - name: Run integration tests for ${{ matrix.service }}
+        run: pnpm --filter @electragram/${{ matrix.service }}-service test:integration
+        env:
+          NODE_ENV: test
+          TESTCONTAINERS_RYUK_DISABLED: "true"
+
+      - name: Upload integration coverage
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: integration-coverage-${{ matrix.service }}
+          path: services/${{ matrix.service }}/coverage/**
+
+  # ─── CDK Tests ──────────────────────────────────────────────────────────────
+  cdk-tests:
+    name: CDK Infrastructure Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Run CDK assertion tests
+        run: pnpm --filter @electragram/infra-cdk test
+        working-directory: infra/cdk
+
+  # ─── Component Tests ────────────────────────────────────────────────────────
+  component-tests:
+    name: Component Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Build shared packages
+        run: pnpm --filter @electragram/types build && pnpm --filter @electragram/ui build
+
+      - name: Run web component tests
+        run: pnpm --filter @electragram/web test:unit
+        env:
+          NODE_ENV: test
+
+  # ─── E2E Tests (Web) ────────────────────────────────────────────────────────
+  e2e-web:
+    name: E2E Tests (Web)
+    runs-on: ubuntu-latest
+    needs: [unit-tests, integration-tests]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Install Playwright browsers
+        run: pnpm --filter @electragram/web exec playwright install --with-deps chromium firefox
+
+      - name: Build web app
+        run: pnpm --filter @electragram/web build
+        env:
+          NEXT_PUBLIC_API_URL: ${{ secrets.STAGING_API_URL }}
+
+      - name: Run Playwright E2E tests
+        run: pnpm --filter @electragram/web test:e2e
+        env:
+          BASE_URL: ${{ secrets.STAGING_APP_URL }}
+
+      - name: Upload Playwright report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: playwright-report
+          path: apps/web/playwright-report/
+          retention-days: 30
+
+  # ─── Contract Tests ──────────────────────────────────────────────────────────
+  contract-tests:
+    name: Pact Contract Tests
+    runs-on: ubuntu-latest
+    needs: [unit-tests]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Run Pact consumer tests
+        run: pnpm --filter "@electragram/web" test:contract
+        env:
+          PACT_BROKER_URL: ${{ secrets.PACT_BROKER_URL }}
+          PACT_BROKER_TOKEN: ${{ secrets.PACT_BROKER_TOKEN }}
+
+  # ─── Required checks gate ───────────────────────────────────────────────────
+  all-checks-pass:
+    name: All Checks Pass
+    runs-on: ubuntu-latest
+    needs:
+      - lint
+      - unit-tests
+      - go-tests
+      - integration-tests
+      - cdk-tests
+      - component-tests
+    if: always()
+    steps:
+      - name: Check all jobs passed
+        run: |
+          if [[ "${{ needs.lint.result }}" != "success" ||
+                "${{ needs.unit-tests.result }}" != "success" ||
+                "${{ needs.go-tests.result }}" != "success" ||
+                "${{ needs.integration-tests.result }}" != "success" ||
+                "${{ needs.cdk-tests.result }}" != "success" ||
+                "${{ needs.component-tests.result }}" != "success" ]]; then
+            echo "One or more required checks failed"
+            exit 1
+          fi
+          echo "All checks passed"

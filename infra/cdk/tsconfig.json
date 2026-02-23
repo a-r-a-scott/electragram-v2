@@ -1,0 +1,8 @@
+{
+  "extends": "@electragram/config/tsconfig/service",
+  "compilerOptions": {
+    "rootDir": ".",
+    "outDir": "dist"
+  },
+  "include": ["bin/**/*", "lib/**/*", "test/**/*"]
+}

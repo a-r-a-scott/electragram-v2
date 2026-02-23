@@ -1,0 +1,231 @@
+version: "3.9"
+
+services:
+  # ─── PostgreSQL ────────────────────────────────────────────────────────────
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: electragram
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: electragram_dev
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./infra/db/init.sql:/docker-entrypoint-initdb.d/init.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U electragram"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # ─── Redis ─────────────────────────────────────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # ─── LocalStack (AWS services) ─────────────────────────────────────────────
+  localstack:
+    image: localstack/localstack:3.8
+    environment:
+      SERVICES: s3,sqs,sns,secretsmanager,kms,events
+      DEBUG: 0
+      DEFAULT_REGION: us-east-1
+      AWS_DEFAULT_REGION: us-east-1
+    ports:
+      - "4566:4566"
+    volumes:
+      - localstack_data:/var/lib/localstack
+      - ./infra/localstack/init-aws.sh:/etc/localstack/init/ready.d/init-aws.sh
+    healthcheck:
+      test: ["CMD-SHELL", "awslocal sqs list-queues"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  # ─── Identity Service ──────────────────────────────────────────────────────
+  identity:
+    build:
+      context: ./services/identity
+      target: development
+    environment:
+      NODE_ENV: development
+      DATABASE_URL: postgresql://electragram:password@postgres:5432/electragram_dev
+      REDIS_URL: redis://redis:6379
+      AWS_REGION: us-east-1
+      AWS_ENDPOINT_URL: http://localstack:4566
+      AWS_ACCESS_KEY_ID: test
+      AWS_SECRET_ACCESS_KEY: test
+    ports:
+      - "3001:3001"
+    volumes:
+      - ./services/identity/src:/app/src
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      localstack:
+        condition: service_healthy
+
+  # ─── Contacts Service ──────────────────────────────────────────────────────
+  contacts:
+    build:
+      context: ./services/contacts
+      target: development
+    environment:
+      NODE_ENV: development
+      DATABASE_URL: postgresql://electragram:password@postgres:5432/electragram_dev
+      REDIS_URL: redis://redis:6379
+      AWS_REGION: us-east-1
+      AWS_ENDPOINT_URL: http://localstack:4566
+      AWS_ACCESS_KEY_ID: test
+      AWS_SECRET_ACCESS_KEY: test
+      IDENTITY_SERVICE_URL: http://identity:3001
+    ports:
+      - "3002:3002"
+    volumes:
+      - ./services/contacts/src:/app/src
+    depends_on:
+      - postgres
+      - redis
+      - localstack
+      - identity
+
+  # ─── Events Service ────────────────────────────────────────────────────────
+  events:
+    build:
+      context: ./services/events
+      target: development
+    environment:
+      NODE_ENV: development
+      DATABASE_URL: postgresql://electragram:password@postgres:5432/electragram_dev
+      REDIS_URL: redis://redis:6379
+      AWS_REGION: us-east-1
+      AWS_ENDPOINT_URL: http://localstack:4566
+      AWS_ACCESS_KEY_ID: test
+      AWS_SECRET_ACCESS_KEY: test
+      IDENTITY_SERVICE_URL: http://identity:3001
+      CONTACTS_SERVICE_URL: http://contacts:3002
+    ports:
+      - "3003:3003"
+    volumes:
+      - ./services/events/src:/app/src
+    depends_on:
+      - postgres
+      - redis
+      - identity
+      - contacts
+
+  # ─── Messaging Service ─────────────────────────────────────────────────────
+  messaging:
+    build:
+      context: ./services/messaging
+      target: development
+    environment:
+      NODE_ENV: development
+      DATABASE_URL: postgresql://electragram:password@postgres:5432/electragram_dev
+      REDIS_URL: redis://redis:6379
+      AWS_REGION: us-east-1
+      AWS_ENDPOINT_URL: http://localstack:4566
+      AWS_ACCESS_KEY_ID: test
+      AWS_SECRET_ACCESS_KEY: test
+    ports:
+      - "3004:3004"
+    volumes:
+      - ./services/messaging/src:/app/src
+    depends_on:
+      - postgres
+      - redis
+      - localstack
+
+  # ─── Chat Service ──────────────────────────────────────────────────────────
+  chat:
+    build:
+      context: ./services/chat
+      target: development
+    environment:
+      NODE_ENV: development
+      DATABASE_URL: postgresql://electragram:password@postgres:5432/electragram_dev
+      REDIS_URL: redis://redis:6379
+      AWS_REGION: us-east-1
+      AWS_ENDPOINT_URL: http://localstack:4566
+      AWS_ACCESS_KEY_ID: test
+      AWS_SECRET_ACCESS_KEY: test
+    ports:
+      - "3007:3007"
+    volumes:
+      - ./services/chat/src:/app/src
+    depends_on:
+      - postgres
+      - redis
+      - localstack
+
+  # ─── Integrations Service ──────────────────────────────────────────────────
+  integrations:
+    build:
+      context: ./services/integrations
+      target: development
+    environment:
+      NODE_ENV: development
+      DATABASE_URL: postgresql://electragram:password@postgres:5432/electragram_dev
+      REDIS_URL: redis://redis:6379
+    ports:
+      - "3008:3008"
+    volumes:
+      - ./services/integrations/src:/app/src
+    depends_on:
+      - postgres
+      - redis
+
+  # ─── Design Service ────────────────────────────────────────────────────────
+  design:
+    build:
+      context: ./services/design
+      target: development
+    environment:
+      NODE_ENV: development
+      DATABASE_URL: postgresql://electragram:password@postgres:5432/electragram_dev
+      REDIS_URL: redis://redis:6379
+    ports:
+      - "3009:3009"
+    volumes:
+      - ./services/design/src:/app/src
+    depends_on:
+      - postgres
+      - redis
+
+  # ─── Analytics Service ─────────────────────────────────────────────────────
+  analytics:
+    build:
+      context: ./services/analytics
+      target: development
+    environment:
+      NODE_ENV: development
+      DATABASE_URL: postgresql://electragram:password@postgres:5432/electragram_dev
+      REDIS_URL: redis://redis:6379
+      AWS_REGION: us-east-1
+      AWS_ENDPOINT_URL: http://localstack:4566
+      AWS_ACCESS_KEY_ID: test
+      AWS_SECRET_ACCESS_KEY: test
+    ports:
+      - "3010:3010"
+    volumes:
+      - ./services/analytics/src:/app/src
+    depends_on:
+      - postgres
+      - redis
+      - localstack
+
+volumes:
+  postgres_data:
+  redis_data:
+  localstack_data:

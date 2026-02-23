@@ -1,0 +1,38 @@
+{
+  "name": "@electragram/test-utils",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    },
+    "./factories": {
+      "import": "./dist/factories/index.js",
+      "types": "./dist/factories/index.d.ts"
+    }
+  },
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "@faker-js/faker": "^9.3.0",
+    "@electragram/types": "workspace:*"
+  },
+  "devDependencies": {
+    "@electragram/config": "workspace:*",
+    "typescript": "^5.7.3",
+    "vitest": "^2.1.8",
+    "testcontainers": "^10.16.0",
+    "pg": "^8.13.3",
+    "@types/pg": "^8.11.10"
+  },
+  "peerDependencies": {
+    "vitest": ">=2.0.0"
+  }
+}
