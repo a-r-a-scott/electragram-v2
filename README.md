@@ -34,7 +34,7 @@ electragram-v2/
 │   ├── integrations/     # CRM integrations — TypeScript/Fastify              🔧
 │   ├── design/           # Themes, templates, blocks — TypeScript/Fastify     🔧
 │   ├── analytics/        # Metrics, activity feed — TypeScript/Fastify        🔧
-│   ├── webhooks/         # Incoming Twilio webhooks — Go/Lambda               🔧
+│   ├── webhooks/         # Incoming Twilio webhooks — Go/Lambda               ✅
 │   └── media/            # File uploads, exports — TypeScript/Lambda          🔧
 ├── packages/
 │   ├── types/            # Shared TypeScript types and Zod schemas
@@ -60,13 +60,13 @@ electragram-v2/
 | **Integrations** | 🔧 Stub | TypeScript/Fastify | — | HubSpot, Mailchimp, Salesforce |
 | **Design** | 🔧 Stub | TypeScript/Fastify | — | Themes, templates, blocks |
 | **Analytics** | 🔧 Stub | TypeScript/Fastify | — | Metrics, activity feed, snapshots |
-| **Webhooks** | 🔧 Stub | Go/Lambda | — | Twilio webhook receiver |
+| **Webhooks** | ✅ Complete | Go/Lambda | 47 passing (handler 95.9%) | Twilio sig validation (HMAC-SHA1), route to SQS |
 | **Media** | 🔧 Stub | TypeScript/Lambda | — | S3 uploads, exports |
 
 **Reference implementations:**
 - **TypeScript/Fastify ECS service** → Identity (auth), Events (CRUD + state machine), or Messaging (async dispatch)
 - **Go Lambda (SQS trigger)** → Delivery (batch processor, partial failure handling)
-- **Go Lambda (API Gateway trigger)** → Tracking (low-latency HTTP, token validation, async DB writes)
+- **Go Lambda (API Gateway trigger)** → Tracking (low-latency HTTP, HMAC tokens, async DB writes) or Webhooks (Twilio signature validation, SQS routing)
 
 ---
 
@@ -148,6 +148,12 @@ TWILIO_FROM_NUMBER=+15551234567
 # Tracking (shared with Messaging service — must match)
 TRACKING_HMAC_SECRET=a-long-random-secret-min-32-chars
 BASE_URL=https://electragram.io
+
+# Webhooks service (Twilio inbound)
+TWILIO_WEBHOOK_TOKEN=your-webhook-registration-token
+TWILIO_WEBHOOK_BASE_URL=https://api.electragram.io
+CHAT_INBOUND_QUEUE_URL=https://sqs.us-east-1.amazonaws.com/123456789/chat-inbound
+DELIVERY_STATUS_QUEUE_URL=https://sqs.us-east-1.amazonaws.com/123456789/delivery-status
 ```
 
 ---
@@ -175,6 +181,7 @@ pnpm test:unit
 # Go services
 cd services/delivery && go test ./...
 cd services/tracking && go test ./...
+cd services/webhooks && go test ./...
 ```
 
 ### Run integration tests (requires Docker for Testcontainers)

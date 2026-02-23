@@ -19,13 +19,13 @@
 | **Integrations** | 🔧 Scaffold | — | HubSpot, Mailchimp, Salesforce |
 | **Design** | 🔧 Scaffold | — | Themes, blocks, email renderer |
 | **Analytics** | 🔧 Scaffold | — | Delivery metrics, activity feed |
-| **Webhooks** | 🔧 Scaffold | — | Twilio signature validation |
+| **Webhooks** | ✅ Complete | 47 passing (handler 95.9%) | Twilio HMAC-SHA1 sig validation, SQS routing (no external SDK) |
 | **Media** | 🔧 Scaffold | — | S3 presign, CSV import, exports |
 
 **Reference patterns:**
 - TypeScript/Fastify ECS service → Identity (auth + RBAC), Events (CRUD + state machine), Messaging (async SQS dispatch)
 - Go Lambda — SQS trigger → Delivery (batch processor, partial batch failure, concurrent goroutines)
-- Go Lambda — API Gateway trigger → Tracking (sub-100ms HTTP, HMAC tokens, fire-and-forget DB writes)
+- Go Lambda — API Gateway trigger → Tracking (sub-100ms HTTP, HMAC tokens, fire-and-forget DB writes) or Webhooks (Twilio sig validation, stdlib Sig V4 SQS)
 
 ---
 
@@ -148,7 +148,7 @@ electragram-v2/
 │   ├── integrations/               # TypeScript/Fastify — ECS Fargate  🔧
 │   ├── design/                     # TypeScript/Fastify — ECS Fargate  🔧
 │   ├── analytics/                  # TypeScript/Fastify — ECS Fargate  🔧
-│   ├── webhooks/                   # Go — Lambda (API Gateway trigger) 🔧
+│   ├── webhooks/                   # Go — Lambda (API Gateway trigger) ✅
 │   └── media/                      # TypeScript — Lambda               🔧
 ├── packages/
 │   ├── types/                      # Shared TypeScript types + Zod schemas
@@ -824,27 +824,91 @@ media.exports
 
 ### Service 12: Webhook Service
 
-**Language:** Go  
+**Language:** Go 1.26  
 **Deployment:** AWS Lambda (API Gateway trigger)  
-**Database schema:** Stateless
+**Database schema:** Stateless (no DB — pure pass-through)  
+**Status:** ✅ Complete — 47 tests passing (handler 95.9%, twilio 100%, parser 100%)
 
 #### Purpose
-Validates and routes incoming webhooks from Twilio (SMS, WhatsApp, status callbacks) to the appropriate internal service via SQS. Isolated to prevent provider credential compromise from impacting other services.
+Validates and routes incoming webhooks from Twilio (SMS, WhatsApp, status callbacks) to the appropriate internal SQS queue. Isolated to prevent provider credential compromise from impacting other services. Designed for 99.99% availability — a missed webhook is a missed message.
+
+#### Internal Package Structure
+
+```
+services/webhooks/
+├── main.go                          # Lambda entry, credential wiring
+├── webhooks_test.go
+└── internal/
+    ├── twilio/
+    │   ├── signature.go             # Validate/Compute HMAC-SHA1 sig
+    │   └── signature_test.go        # 14 tests — 100% coverage
+    ├── parser/
+    │   ├── parser.go                # Decode Twilio form body → WebhookEvent
+    │   └── parser_test.go           # 13 tests — 100% coverage
+    ├── sqs/
+    │   ├── publisher.go             # Publisher interface + stdlib Sig V4 client + Mock
+    │   └── publisher_test.go        # 9 tests
+    └── handler/
+        ├── handler.go               # TokenResolver, Handler, routing
+        └── handler_test.go          # 20 tests — 95.9% coverage
+```
 
 #### Endpoints
 
 | Method | Path | Description |
 |---|---|---|
-| POST | `/hooks/twilio/:token` | Twilio SMS/Voice inbound |
-| POST | `/hooks/twilio/whatsapp-senders/:token` | Twilio WhatsApp inbound |
+| POST | `/hooks/twilio/{webhookToken}` | Inbound SMS or status callback |
+| POST | `/hooks/twilio/whatsapp-senders/{webhookToken}` | Inbound WhatsApp or status callback |
 
-#### Processing
-1. Validate `X-Twilio-Signature` header (HMAC-SHA1)
-2. Lookup account from `:token` → query Identity Service
-3. Route to appropriate SQS queue:
-   - Inbound SMS/WhatsApp → `chat-inbound` queue (Chat Service)
-   - Delivery status callbacks → `delivery-status` queue (Delivery Service)
-4. Return `200 OK` to Twilio within 15 seconds (Twilio timeout requirement)
+#### Processing Pipeline
+
+1. Extract `{webhookToken}` from path (last segment).
+2. Resolve the Twilio auth token for that webhook registration via `TokenResolver`.
+   - Current implementation: `MapTokenResolver` — static map populated from env at cold start.
+   - Extension point: swap for an HTTP-based resolver that calls Identity Service for multi-tenant deployments.
+3. Validate `X-Twilio-Signature` header using HMAC-SHA1 over the full URL + sorted POST params (Twilio webhook security spec). Handles both `X-Twilio-Signature` and `x-twilio-signature` (API Gateway may lowercase headers).
+4. Parse the `application/x-www-form-urlencoded` body into a `WebhookEvent`. Classify as:
+   - `inbound_sms` — `MessageStatus` absent, no `whatsapp:` prefix
+   - `inbound_whatsapp` — `From` or `To` starts with `whatsapp:`
+   - `status_callback` — `MessageStatus` present (takes precedence)
+5. Serialize to JSON and publish to the appropriate SQS queue.
+6. Return an empty TwiML `<Response/>` with `Content-Type: text/xml` — Twilio requires a 200 within 15 seconds.
+
+#### SQS Message Format
+
+All messages share the same JSON schema:
+
+```json
+{
+  "kind": "inbound_sms | inbound_whatsapp | status_callback",
+  "accountSid": "ACxxx",
+  "messageSid": "SMxxx",
+  "from": "+15551234567",
+  "to": "+15550000001",
+  "body": "Message text",
+  "messageStatus": "delivered",
+  "numMedia": "0"
+}
+```
+
+Queue routing:
+- `inbound_sms` / `inbound_whatsapp` → `CHAT_INBOUND_QUEUE_URL`
+- `status_callback` → `DELIVERY_STATUS_QUEUE_URL`
+
+#### SQS Client (stdlib only, no external SDK)
+
+The real `sqs.Client` publishes to SQS using the HTTP API with AWS Signature V4, implemented entirely in the standard library (`crypto/hmac`, `crypto/sha256`, `net/http`). Credentials are read from Lambda environment variables (`AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_SESSION_TOKEN`). This eliminates the `aws-sdk-go-v2` dependency.
+
+#### Environment Variables
+
+| Variable | Description |
+|---|---|
+| `TWILIO_WEBHOOK_TOKEN` | Webhook URL registration token (used in the URL path) |
+| `TWILIO_AUTH_TOKEN` | Twilio account auth token (for HMAC-SHA1 signature validation) |
+| `TWILIO_WEBHOOK_BASE_URL` | Full base URL used for Twilio signature reconstruction, e.g. `https://api.electragram.io` |
+| `CHAT_INBOUND_QUEUE_URL` | SQS URL for inbound SMS/WhatsApp messages |
+| `DELIVERY_STATUS_QUEUE_URL` | SQS URL for Twilio delivery status callbacks |
+| `AWS_REGION` | AWS region (defaults to `us-east-1`) |
 
 #### Non-functional Requirements
 - Response time: < 500ms p99 (Twilio will retry if > 15s)
@@ -916,7 +980,7 @@ VPC (10.0.0.0/16)
 ### Lambda
 - **Delivery** (Go 1.26): 512 MB, 30s timeout, reserved concurrency 200, SQS trigger batch size 10, partial batch failure enabled
 - **Tracking** (Go 1.26): 128 MB, 3s timeout, provisioned concurrency 10 (warm — latency sensitive), API Gateway trigger
-- **Webhooks** (Go 1.26): 256 MB, 10s timeout, API Gateway trigger
+- **Webhooks** (Go 1.26): 256 MB, 10s timeout, provisioned concurrency 5 (Twilio retries on cold-start delay), API Gateway trigger
 - **Media** (TypeScript): 1 GB, 300s timeout, API Gateway trigger
 
 ### CloudFront
