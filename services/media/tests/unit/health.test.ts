@@ -1,12 +1,12 @@
 import { describe, it, expect } from "vitest";
-import { buildApp } from "../../src/app.js";
+import { matchRoute } from "../../src/router.js";
 
-describe("GET /health", () => {
-  it("returns 200 with service status", async () => {
-    const app = await buildApp({ databaseUrl: "postgresql://test:test@localhost/test", nodeEnv: "test" });
-    const res = await app.inject({ method: "GET", url: "/health" });
-    expect(res.statusCode).toBe(200);
-    const body = JSON.parse(res.body) as { status: string };
-    expect(body.status).toBe("ok");
+describe("GET /health routing", () => {
+  it("matchRoute returns health for GET /health", () => {
+    expect(matchRoute("GET", "/health")).toBe("health");
+  });
+
+  it("matchRoute returns health for GET /api/health", () => {
+    expect(matchRoute("GET", "/api/health")).toBe("health");
   });
 });

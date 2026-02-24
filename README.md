@@ -61,7 +61,7 @@ electragram-v2/
 | **Design** | ✅ Complete | TypeScript/Fastify | 61 passing | Themes, templates, layers, fonts, palettes, graphics, blocks, email renderer |
 | **Analytics** | ✅ Complete | TypeScript/Fastify | 48 passing | SNS event consumer, snapshot counter upserts, activity feed, summary rates |
 | **Webhooks** | ✅ Complete | Go/Lambda | 47 passing (handler 95.9%) | Twilio sig validation (HMAC-SHA1), route to SQS |
-| **Media** | 🔧 Stub | TypeScript/Lambda | — | S3 uploads, exports |
+| **Media** | ✅ Complete | TypeScript/Lambda | 45 passing | S3 presigned uploads, CSV import pipeline, export generation |
 
 **Reference implementations:**
 - **TypeScript/Fastify ECS service** → Identity (auth), Events (CRUD + state machine), or Messaging (async dispatch)
@@ -71,6 +71,7 @@ electragram-v2/
 - **TypeScript/Fastify — SQS consumer + HTTP API** → Analytics (background SNS event processing, atomic counter upserts, activity feed)
 - **TypeScript/Fastify — WebSocket + SQS consumer** → Chat (real-time message broadcast, inbound Twilio routing, find-or-create conversation)
 - **TypeScript/Fastify — OAuth + ProviderKit strategy** → Integrations (OAuth 2.0 connect flows, API key auth, pluggable provider adapters, contact sync)
+- **TypeScript/Lambda — direct handler + router** → Media (S3 presigned URLs, CSV import pipeline, export generation, Lambda-native without framework overhead)
 
 ---
 

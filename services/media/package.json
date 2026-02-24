@@ -9,17 +9,17 @@
     "start": "node dist/index.js",
     "test": "vitest run --coverage",
     "test:unit": "vitest run --coverage --testPathPattern='tests/unit'",
-    "test:integration": "vitest run --coverage --testPathPattern='tests/integration'",
     "typecheck": "tsc --noEmit",
     "clean": "rm -rf dist coverage"
   },
   "dependencies": {
     "@electragram/types": "workspace:*",
-    "fastify": "^5.2.1",
-    "@fastify/cors": "^10.0.2",
-    "@fastify/helmet": "^13.0.1",
+    "@aws-sdk/client-s3": "^3.726.0",
+    "@aws-sdk/s3-request-presigner": "^3.726.0",
     "drizzle-orm": "^0.38.3",
+    "jose": "^5.2.0",
     "pg": "^8.13.3",
+    "csv-parse": "^5.6.0",
     "zod": "^3.24.1",
     "pino": "^9.6.0",
     "nanoid": "^5.0.9"
@@ -27,12 +27,12 @@
   "devDependencies": {
     "@electragram/config": "workspace:*",
     "@electragram/test-utils": "workspace:*",
+    "@types/aws-lambda": "^8.10.147",
     "@types/node": "^22.10.7",
     "@types/pg": "^8.11.10",
     "tsx": "^4.19.2",
     "typescript": "^5.7.3",
     "vitest": "^2.1.8",
-    "@vitest/coverage-v8": "^2.1.8",
-    "testcontainers": "^10.16.0"
+    "@vitest/coverage-v8": "^2.1.8"
   }
 }

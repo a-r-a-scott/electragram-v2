@@ -20,7 +20,7 @@
 | **Design** | ✅ Complete | 61 passing | Themes, templates, layers, palettes, fonts, graphics, blocks, `RendererService` (CSS vars + interpolation) |
 | **Analytics** | ✅ Complete | 48 passing | SNS/SQS consumer, atomic snapshot upserts, activity feed, open/click/bounce rates |
 | **Webhooks** | ✅ Complete | 47 passing (handler 95.9%) | Twilio HMAC-SHA1 sig validation, SQS routing (no external SDK) |
-| **Media** | 🔧 Scaffold | — | S3 presign, CSV import, exports |
+| **Media** | ✅ Complete | 45 passing | S3 presigned uploads, CSV import pipeline (column mapping, error tracking), export generation |
 
 **Reference patterns:**
 - TypeScript/Fastify ECS service → Identity (auth + RBAC), Events (CRUD + state machine), Messaging (async SQS dispatch)
@@ -29,6 +29,7 @@
 - TypeScript/Fastify — SQS consumer + HTTP API → Analytics (background event processing, atomic PostgreSQL upserts, activity feed)
 - TypeScript/Fastify — WebSocket + SQS inbound consumer → Chat (real-time broadcast, find-or-create conversation, Twilio REST outbound)
 - TypeScript/Fastify — OAuth 2.0 + ProviderKit strategy → Integrations (pluggable provider adapters, AES-256-GCM credentials, paginated contact sync)
+- TypeScript/Lambda — direct handler + router → Media (S3 presigned URLs, CSV import pipeline, export generation, lazy singleton init for warm reuse)
 
 ---
 
@@ -1090,32 +1091,107 @@ Both direct JSON and SNS notification envelope format are handled.
 ### Service 11: Media Service
 
 **Language:** TypeScript / Lambda  
-**Deployment:** AWS Lambda  
-**Database schema:** `media.*`
+**Deployment:** AWS Lambda (API Gateway trigger)  
+**Database schema:** `media.*`  
+**Status:** ✅ Complete — 45 tests passing
 
 #### Purpose
-Handles file uploads (presigned S3 URLs), CSV import processing, export generation, and image generation via Lambda.
+Handles file uploads (presigned S3 URLs), CSV import processing, export generation, and image generation via Lambda. Uses a direct Lambda handler pattern (no Fastify) for minimal cold-start overhead.
 
 #### Owns
 ```
-media.uploads
-media.exports
+media.uploads          — Upload job tracking (CSV imports, file uploads)
+media.upload_errors    — Per-row validation errors from CSV processing
+media.upload_refs      — Maps processed rows to created internal records
+media.exports          — Export job tracking (status, S3 key, download URL)
 ```
 
-#### Endpoints
+#### Internal Package Structure
+```
+services/media/src/
+├── db/
+│   ├── schema.ts          # Drizzle ORM: uploads, upload_errors, upload_refs, exports
+│   ├── client.ts          # PG pool + drizzle instance
+│   └── migrate.ts         # Idempotent DDL migrations
+├── services/
+│   ├── errors.ts          # NotFoundError, ValidationError, UnauthorizedError
+│   ├── auth.ts            # JWT RS256 verification from Authorization header
+│   ├── s3.ts              # S3Client wrapper: presignUpload, presignDownload, getObject, putObject
+│   ├── uploads.service.ts  # Upload CRUD + setStatus + recordError + recordRef
+│   ├── exports.service.ts  # Export CRUD + setProcessing/setCompleted/setFailed
+│   └── csv-processor.ts    # CSV parse (csv-parse) → column mapping → ContactImporter
+├── handlers/
+│   ├── types.ts             # HandlerContext, ok(), err() helpers
+│   ├── presign.handler.ts   # POST /media/uploads/presign
+│   ├── process.handler.ts   # POST /media/uploads/:id/process
+│   ├── get-upload.handler.ts # GET /media/uploads/:id
+│   ├── create-export.handler.ts # POST /media/exports
+│   └── get-export.handler.ts    # GET /media/exports/:id
+├── router.ts              # Route pattern matching (exported for unit testing)
+└── index.ts               # Lambda handler entry point (lazy-init, warm reuse)
+```
 
+#### Upload Flow (CSV Import)
+```
+1. POST /media/uploads/presign
+   → Create uploads row (status: pending)
+   → S3.presignUpload(key, contentType) — 15-minute expiry
+   → Return { upload, presignedUrl }
+
+2. Client PUTs file directly to S3 (browser → S3, bypasses Lambda)
+
+3. POST /media/uploads/:id/process
+   → Set status: processing
+   → S3.getObject(s3Key) → Buffer
+   → csv-parse (columns mode, trim, skip_empty_lines)
+   → For each row: apply mapping → ContactImporter.upsert → recordRef / recordError
+   → Set status: processed
+   → Return { uploadId, total, imported, skipped, errors }
+```
+
+#### Export Flow
+```
+POST /media/exports
+  → Create exports row (status: pending)
+  → Set status: processing
+  → Generate CSV content
+  → S3.putObject(key, buffer, "text/csv")
+  → S3.presignDownload(key) — 1-hour expiry
+  → setCompleted({ s3Key, downloadUrl })
+  → Return completed export record
+
+GET /media/exports/:id
+  → Fetch export row
+  → If completed: generate fresh presigned download URL
+  → Return { ...export, downloadUrl }
+```
+
+#### Lambda Handler Pattern
+```typescript
+export const handler = async (event: APIGatewayProxyEvent) => {
+  const route = matchRoute(event.httpMethod, event.path);
+  const claims = await verifyToken(event.headers.Authorization, JWT_PUBLIC_KEY);
+  const ctx: HandlerContext = { db, s3, uploads, exports, contactImporter, claims };
+  switch (route) { ... }
+};
+```
+Singletons (`db`, `s3`) are lazily initialised on first invocation and reused across warm Lambda calls.
+
+#### Endpoints
 | Method | Path | Description |
 |---|---|---|
-| POST | `/api/media/uploads/presign` | Generate S3 presigned upload URL |
-| POST | `/api/media/uploads/:id/process` | Trigger background processing |
-| GET | `/api/media/uploads/:id` | Get upload status |
-| POST | `/api/media/exports` | Create export job |
-| GET | `/api/media/exports/:id` | Get export status + download URL |
+| `GET` | `/health` | Health check |
+| `POST` | `/media/uploads/presign` | Generate S3 presigned PUT URL + create upload record |
+| `POST` | `/media/uploads/:id/process` | Download from S3, parse CSV, import contacts |
+| `GET` | `/media/uploads/:id` | Get upload status + error/ref counts |
+| `POST` | `/media/exports` | Create export job + generate CSV + presigned download URL |
+| `GET` | `/media/exports/:id` | Get export status + fresh presigned download URL |
 
 #### Non-functional Requirements
 - Presigned URL generation: < 50ms p99
 - CSV import processing (10k rows): < 30 seconds
 - Export generation (10k records): < 60 seconds
+- Lambda cold start: < 500ms (no framework overhead)
 
 ---
 
