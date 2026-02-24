@@ -56,6 +56,8 @@ services:
     build:
       context: ./services/identity
       target: development
+    env_file:
+      - .env.local
     environment:
       NODE_ENV: development
       DATABASE_URL: postgresql://electragram:password@postgres:5432/electragram_dev
@@ -81,6 +83,8 @@ services:
     build:
       context: ./services/contacts
       target: development
+    env_file:
+      - .env.local
     environment:
       NODE_ENV: development
       DATABASE_URL: postgresql://electragram:password@postgres:5432/electragram_dev
@@ -105,6 +109,8 @@ services:
     build:
       context: ./services/events
       target: development
+    env_file:
+      - .env.local
     environment:
       NODE_ENV: development
       DATABASE_URL: postgresql://electragram:password@postgres:5432/electragram_dev
@@ -130,6 +136,8 @@ services:
     build:
       context: ./services/messaging
       target: development
+    env_file:
+      - .env.local
     environment:
       NODE_ENV: development
       DATABASE_URL: postgresql://electragram:password@postgres:5432/electragram_dev
@@ -138,6 +146,9 @@ services:
       AWS_ENDPOINT_URL: http://localstack:4566
       AWS_ACCESS_KEY_ID: test
       AWS_SECRET_ACCESS_KEY: test
+      SQS_DELIVERY_EMAIL_URL: http://localstack:4566/000000000000/delivery-email
+      SQS_DELIVERY_SMS_URL: http://localstack:4566/000000000000/delivery-sms
+      SQS_DELIVERY_WHATSAPP_URL: http://localstack:4566/000000000000/delivery-whatsapp
     ports:
       - "3004:3004"
     volumes:
@@ -152,6 +163,8 @@ services:
     build:
       context: ./services/chat
       target: development
+    env_file:
+      - .env.local
     environment:
       NODE_ENV: development
       DATABASE_URL: postgresql://electragram:password@postgres:5432/electragram_dev
@@ -160,6 +173,10 @@ services:
       AWS_ENDPOINT_URL: http://localstack:4566
       AWS_ACCESS_KEY_ID: test
       AWS_SECRET_ACCESS_KEY: test
+      CHAT_INBOUND_QUEUE_URL: http://localstack:4566/000000000000/chat-inbound
+      # Twilio credentials are optional locally — chat will start but outbound SMS/WhatsApp won't send
+      TWILIO_ACCOUNT_SID: ${TWILIO_ACCOUNT_SID:-placeholder}
+      TWILIO_AUTH_TOKEN: ${TWILIO_AUTH_TOKEN:-placeholder}
     ports:
       - "3007:3007"
     volumes:
@@ -174,10 +191,13 @@ services:
     build:
       context: ./services/integrations
       target: development
+    env_file:
+      - .env.local
     environment:
       NODE_ENV: development
       DATABASE_URL: postgresql://electragram:password@postgres:5432/electragram_dev
       REDIS_URL: redis://redis:6379
+      BASE_URL: http://localhost:3000
     ports:
       - "3008:3008"
     volumes:
@@ -191,6 +211,8 @@ services:
     build:
       context: ./services/design
       target: development
+    env_file:
+      - .env.local
     environment:
       NODE_ENV: development
       DATABASE_URL: postgresql://electragram:password@postgres:5432/electragram_dev
@@ -208,6 +230,8 @@ services:
     build:
       context: ./services/analytics
       target: development
+    env_file:
+      - .env.local
     environment:
       NODE_ENV: development
       DATABASE_URL: postgresql://electragram:password@postgres:5432/electragram_dev
@@ -216,6 +240,7 @@ services:
       AWS_ENDPOINT_URL: http://localstack:4566
       AWS_ACCESS_KEY_ID: test
       AWS_SECRET_ACCESS_KEY: test
+      ANALYTICS_QUEUE_URL: http://localstack:4566/000000000000/delivery-status
     ports:
       - "3010:3010"
     volumes:
