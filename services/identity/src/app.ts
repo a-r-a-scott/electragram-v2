@@ -4,6 +4,7 @@ import helmet from "@fastify/helmet";
 import rateLimit from "@fastify/rate-limit";
 
 import { createDb } from "./db/client.js";
+import { runMigrations } from "./db/migrate.js";
 import { JwtService } from "./utils/jwt.js";
 import { AuthService } from "./services/auth.service.js";
 import { AccountsService } from "./services/accounts.service.js";
@@ -17,6 +18,7 @@ export interface AppConfig {
   jwtPublicKeyPem: string;
   nodeEnv?: string;
   redisUrl?: string;
+  runMigrations?: boolean;
 }
 
 export async function buildApp(config: AppConfig) {
@@ -37,6 +39,7 @@ export async function buildApp(config: AppConfig) {
   });
 
   const db = createDb(config.databaseUrl);
+  if (config.runMigrations !== false) await runMigrations(db);
 
   const jwtService = new JwtService({
     privateKeyPem: config.jwtPrivateKeyPem,

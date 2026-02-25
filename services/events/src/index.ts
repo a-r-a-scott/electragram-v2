@@ -8,7 +8,7 @@ const app = await buildApp({
   databaseUrl: process.env.DATABASE_URL ?? "postgres://localhost:5432/electragram_events",
   jwtPublicKey: process.env.JWT_PUBLIC_KEY ?? "",
   nodeEnv: process.env.NODE_ENV ?? "production",
-  runMigrations: process.env.RUN_MIGRATIONS === "true",
+  runMigrations: process.env.RUN_MIGRATIONS !== "false",
 });
 
 const shutdown = async () => {
