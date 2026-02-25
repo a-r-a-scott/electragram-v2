@@ -133,7 +133,7 @@ RESPONSE=$(curl -s -w "\n%{http_code}" \
   -d "$PAYLOAD")
 
 HTTP_CODE=$(echo "$RESPONSE" | tail -n1)
-BODY=$(echo "$RESPONSE" | head -n -1)
+BODY=$(echo "$RESPONSE" | sed '$d')
 
 # ─── Handle the response ──────────────────────────────────────────────────────
 if [[ "$HTTP_CODE" == "201" ]] || [[ "$HTTP_CODE" == "200" ]]; then
