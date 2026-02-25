@@ -17,6 +17,7 @@ FROM deps AS development
 ENV NODE_ENV=development
 COPY . .
 RUN --mount=type=cache,id=pnpm,target=/pnpm/store pnpm install --frozen-lockfile
+RUN pnpm --filter @electragram/types build
 EXPOSE ${PORT:-3004}
 CMD ["pnpm", "--filter", "@electragram/messaging-service", "dev"]
 
@@ -30,5 +31,6 @@ ENV NODE_ENV=production
 COPY --from=build /app/dist ./dist
 COPY --from=deps /app/node_modules ./node_modules
 COPY package.json ./
+RUN pnpm --filter @electragram/types build
 EXPOSE ${PORT:-3004}
 CMD ["node", "dist/index.js"]

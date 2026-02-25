@@ -17,6 +17,7 @@ FROM deps AS development
 ENV NODE_ENV=development
 COPY . .
 RUN --mount=type=cache,id=pnpm,target=/pnpm/store pnpm install --frozen-lockfile
+RUN pnpm --filter @electragram/types build
 EXPOSE ${PORT:-3002}
 CMD ["pnpm", "--filter", "@electragram/contacts-service", "dev"]
 

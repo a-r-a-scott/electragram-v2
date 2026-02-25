@@ -19,6 +19,7 @@ COPY . .
 # Re-run install now that all workspace package.json files are present so
 # pnpm creates the per-package node_modules/.bin symlinks (e.g. for `next`).
 RUN --mount=type=cache,id=pnpm,target=/pnpm/store pnpm install --frozen-lockfile
+RUN pnpm --filter @electragram/types build
 EXPOSE 3000
 CMD ["pnpm", "--filter", "@electragram/web", "dev"]
 
