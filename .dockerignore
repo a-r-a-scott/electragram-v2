@@ -1,0 +1,32 @@
+# Never copy host node_modules into the container — platform-specific native
+# binaries (esbuild, etc.) will be wrong architecture (e.g. darwin-arm64 on a
+# linux-arm64 container). pnpm install runs inside the container instead.
+**/node_modules
+
+# Build outputs — rebuilt inside the container
+**/dist
+**/.next
+**/out
+**/.expo
+
+# Test artefacts
+**/coverage
+**/.nyc_output
+**/test-results
+**/playwright-report
+
+# Dev tools
+**/.turbo
+**/*.tsbuildinfo
+
+# Secrets — never bake into an image
+.env
+.env.local
+.env.*.local
+keys/
+
+# OS / editor noise
+**/.DS_Store
+**/Thumbs.db
+**/.vscode
+**/.idea
