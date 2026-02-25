@@ -20,6 +20,9 @@ COPY . .
 # pnpm creates the per-package node_modules/.bin symlinks (e.g. for `next`).
 RUN --mount=type=cache,id=pnpm,target=/pnpm/store pnpm install --frozen-lockfile
 RUN pnpm --filter @electragram/types build
+COPY infra/docker/entrypoint.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
+ENTRYPOINT ["/entrypoint.sh"]
 EXPOSE 3000
 CMD ["pnpm", "--filter", "@electragram/web", "dev"]
 

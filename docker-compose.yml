@@ -61,10 +61,12 @@ services:
       NODE_ENV: development
       NEXT_PUBLIC_API_URL: http://localhost:3000/api
       NEXT_PUBLIC_WS_URL: ws://localhost:3007/chat/ws
+      JWT_PUBLIC_KEY_FILE: /run/secrets/jwt-public.pem
     ports:
       - "3000:3000"
     volumes:
       - ./apps/web/src:/app/apps/web/src
+      - ./keys:/run/secrets:ro
     depends_on:
       - identity
       - contacts
@@ -85,10 +87,13 @@ services:
       AWS_ENDPOINT_URL: http://localstack:4566
       AWS_ACCESS_KEY_ID: test
       AWS_SECRET_ACCESS_KEY: test
+      JWT_PRIVATE_KEY_FILE: /run/secrets/jwt-private.pem
+      JWT_PUBLIC_KEY_FILE: /run/secrets/jwt-public.pem
     ports:
       - "3001:3001"
     volumes:
-      - ./services/identity/src:/app/src
+      - ./services/identity/src:/app/services/identity/src
+      - ./keys:/run/secrets:ro
     depends_on:
       postgres:
         condition: service_healthy
@@ -114,10 +119,12 @@ services:
       AWS_ACCESS_KEY_ID: test
       AWS_SECRET_ACCESS_KEY: test
       IDENTITY_SERVICE_URL: http://identity:3001
+      JWT_PUBLIC_KEY_FILE: /run/secrets/jwt-public.pem
     ports:
       - "3002:3002"
     volumes:
-      - ./services/contacts/src:/app/src
+      - ./services/contacts/src:/app/services/contacts/src
+      - ./keys:/run/secrets:ro
     depends_on:
       - postgres
       - redis
@@ -142,10 +149,12 @@ services:
       AWS_SECRET_ACCESS_KEY: test
       IDENTITY_SERVICE_URL: http://identity:3001
       CONTACTS_SERVICE_URL: http://contacts:3002
+      JWT_PUBLIC_KEY_FILE: /run/secrets/jwt-public.pem
     ports:
       - "3003:3003"
     volumes:
-      - ./services/events/src:/app/src
+      - ./services/events/src:/app/services/events/src
+      - ./keys:/run/secrets:ro
     depends_on:
       - postgres
       - redis
@@ -171,10 +180,12 @@ services:
       SQS_DELIVERY_EMAIL_URL: http://localstack:4566/000000000000/delivery-email
       SQS_DELIVERY_SMS_URL: http://localstack:4566/000000000000/delivery-sms
       SQS_DELIVERY_WHATSAPP_URL: http://localstack:4566/000000000000/delivery-whatsapp
+      JWT_PUBLIC_KEY_FILE: /run/secrets/jwt-public.pem
     ports:
       - "3004:3004"
     volumes:
-      - ./services/messaging/src:/app/src
+      - ./services/messaging/src:/app/services/messaging/src
+      - ./keys:/run/secrets:ro
     depends_on:
       - postgres
       - redis
@@ -197,13 +208,15 @@ services:
       AWS_ACCESS_KEY_ID: test
       AWS_SECRET_ACCESS_KEY: test
       CHAT_INBOUND_QUEUE_URL: http://localstack:4566/000000000000/chat-inbound
+      JWT_PUBLIC_KEY_FILE: /run/secrets/jwt-public.pem
       # Twilio credentials are optional locally — chat will start but outbound SMS/WhatsApp won't send
       TWILIO_ACCOUNT_SID: ${TWILIO_ACCOUNT_SID:-placeholder}
       TWILIO_AUTH_TOKEN: ${TWILIO_AUTH_TOKEN:-placeholder}
     ports:
       - "3007:3007"
     volumes:
-      - ./services/chat/src:/app/src
+      - ./services/chat/src:/app/services/chat/src
+      - ./keys:/run/secrets:ro
     depends_on:
       - postgres
       - redis
@@ -222,10 +235,12 @@ services:
       DATABASE_URL: postgresql://electragram:password@postgres:5432/electragram_dev
       REDIS_URL: redis://redis:6379
       BASE_URL: http://localhost:3000
+      JWT_PUBLIC_KEY_FILE: /run/secrets/jwt-public.pem
     ports:
       - "3008:3008"
     volumes:
-      - ./services/integrations/src:/app/src
+      - ./services/integrations/src:/app/services/integrations/src
+      - ./keys:/run/secrets:ro
     depends_on:
       - postgres
       - redis
@@ -242,10 +257,12 @@ services:
       NODE_ENV: development
       DATABASE_URL: postgresql://electragram:password@postgres:5432/electragram_dev
       REDIS_URL: redis://redis:6379
+      JWT_PUBLIC_KEY_FILE: /run/secrets/jwt-public.pem
     ports:
       - "3009:3009"
     volumes:
-      - ./services/design/src:/app/src
+      - ./services/design/src:/app/services/design/src
+      - ./keys:/run/secrets:ro
     depends_on:
       - postgres
       - redis
@@ -267,10 +284,12 @@ services:
       AWS_ACCESS_KEY_ID: test
       AWS_SECRET_ACCESS_KEY: test
       ANALYTICS_QUEUE_URL: http://localstack:4566/000000000000/delivery-status
+      JWT_PUBLIC_KEY_FILE: /run/secrets/jwt-public.pem
     ports:
       - "3010:3010"
     volumes:
-      - ./services/analytics/src:/app/src
+      - ./services/analytics/src:/app/services/analytics/src
+      - ./keys:/run/secrets:ro
     depends_on:
       - postgres
       - redis

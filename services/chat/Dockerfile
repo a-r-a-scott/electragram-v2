@@ -19,6 +19,9 @@ COPY . .
 RUN --mount=type=cache,id=pnpm,target=/pnpm/store pnpm install --frozen-lockfile
 RUN pnpm --filter @electragram/types build
 EXPOSE ${PORT:-3007}
+COPY infra/docker/entrypoint.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
+ENTRYPOINT ["/entrypoint.sh"]
 CMD ["pnpm", "--filter", "@electragram/chat-service", "dev"]
 
 # ── production ────────────────────────────────────────────────────────────────
