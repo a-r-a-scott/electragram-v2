@@ -49,6 +49,26 @@ services:
       timeout: 5s
       retries: 10
 
+  # ─── Web App (Next.js) ─────────────────────────────────────────────────────
+  web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+      target: development
+    env_file:
+      - .env.local
+    environment:
+      NODE_ENV: development
+      NEXT_PUBLIC_API_URL: http://localhost:3000/api
+      NEXT_PUBLIC_WS_URL: ws://localhost:3007/chat/ws
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./apps/web/src:/app/apps/web/src
+    depends_on:
+      - identity
+      - contacts
+
   # ─── Identity Service ──────────────────────────────────────────────────────
   identity:
     build:
