@@ -17,7 +17,7 @@ FROM deps AS development
 ENV NODE_ENV=development
 COPY . .
 EXPOSE ${PORT:-3010}
-CMD ["pnpm", "dev"]
+CMD ["pnpm", "--filter", "@electragram/analytics-service", "dev"]
 
 # ── production ────────────────────────────────────────────────────────────────
 FROM deps AS build
