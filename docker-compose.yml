@@ -1,5 +1,3 @@
-version: "3.9"
-
 services:
   # ─── PostgreSQL ────────────────────────────────────────────────────────────
   postgres:
@@ -54,7 +52,8 @@ services:
   # ─── Identity Service ──────────────────────────────────────────────────────
   identity:
     build:
-      context: ./services/identity
+      context: .
+      dockerfile: services/identity/Dockerfile
       target: development
     env_file:
       - .env.local
@@ -81,7 +80,8 @@ services:
   # ─── Contacts Service ──────────────────────────────────────────────────────
   contacts:
     build:
-      context: ./services/contacts
+      context: .
+      dockerfile: services/contacts/Dockerfile
       target: development
     env_file:
       - .env.local
@@ -107,7 +107,8 @@ services:
   # ─── Events Service ────────────────────────────────────────────────────────
   events:
     build:
-      context: ./services/events
+      context: .
+      dockerfile: services/events/Dockerfile
       target: development
     env_file:
       - .env.local
@@ -134,7 +135,8 @@ services:
   # ─── Messaging Service ─────────────────────────────────────────────────────
   messaging:
     build:
-      context: ./services/messaging
+      context: .
+      dockerfile: services/messaging/Dockerfile
       target: development
     env_file:
       - .env.local
@@ -161,7 +163,8 @@ services:
   # ─── Chat Service ──────────────────────────────────────────────────────────
   chat:
     build:
-      context: ./services/chat
+      context: .
+      dockerfile: services/chat/Dockerfile
       target: development
     env_file:
       - .env.local
@@ -189,7 +192,8 @@ services:
   # ─── Integrations Service ──────────────────────────────────────────────────
   integrations:
     build:
-      context: ./services/integrations
+      context: .
+      dockerfile: services/integrations/Dockerfile
       target: development
     env_file:
       - .env.local
@@ -209,7 +213,8 @@ services:
   # ─── Design Service ────────────────────────────────────────────────────────
   design:
     build:
-      context: ./services/design
+      context: .
+      dockerfile: services/design/Dockerfile
       target: development
     env_file:
       - .env.local
@@ -228,7 +233,8 @@ services:
   # ─── Analytics Service ─────────────────────────────────────────────────────
   analytics:
     build:
-      context: ./services/analytics
+      context: .
+      dockerfile: services/analytics/Dockerfile
       target: development
     env_file:
       - .env.local
