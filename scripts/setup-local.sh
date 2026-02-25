@@ -5,7 +5,9 @@
 # Run it once after cloning — it
 #  checks Docker/Node/pnpm/openssl are installed,
 #  copies .env.example → .env.local,
-#  generates a 2048-bit RSA JWT key pair and a 64-hex-char encryption key (written directly into .env.local),
+#  generates a 2048-bit RSA JWT key pair stored as keys/jwt-private.pem and keys/jwt-public.pem,
+#  writes JWT_PRIVATE_KEY_FILE / JWT_PUBLIC_KEY_FILE paths into .env.local,
+#  generates a 64-hex-char encryption key and writes it into .env.local,
 #  installs Node dependencies,
 #  runs docker compose up -d --wait,
 #  and prints the full port reference table.
@@ -87,48 +89,61 @@ else
 fi
 
 # ─── 3. JWT key pair ──────────────────────────────────────────────────────────
-info "Checking JWT keys in .env.local..."
+info "Checking JWT keys..."
 
-if grep -q "^JWT_PRIVATE_KEY=-----BEGIN" .env.local 2>/dev/null; then
-  success "JWT keys already present in .env.local — skipping generation"
+KEYS_DIR="$REPO_ROOT/keys"
+PRIVATE_KEY_FILE="$KEYS_DIR/jwt-private.pem"
+PUBLIC_KEY_FILE="$KEYS_DIR/jwt-public.pem"
+
+if [[ -f "$PRIVATE_KEY_FILE" ]] && [[ -f "$PUBLIC_KEY_FILE" ]]; then
+  success "JWT key files already exist — skipping generation"
 else
   info "Generating RSA-2048 JWT key pair..."
 
-  TMPDIR_JWT=$(mktemp -d)
-  trap "rm -rf $TMPDIR_JWT" EXIT
+  mkdir -p "$KEYS_DIR"
+  chmod 700 "$KEYS_DIR"
 
   openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 \
-    -out "$TMPDIR_JWT/private.pem" 2>/dev/null
-  openssl rsa -pubout -in "$TMPDIR_JWT/private.pem" \
-    -out "$TMPDIR_JWT/public.pem" 2>/dev/null
+    -out "$PRIVATE_KEY_FILE" 2>/dev/null
+  openssl rsa -pubout -in "$PRIVATE_KEY_FILE" \
+    -out "$PUBLIC_KEY_FILE" 2>/dev/null
 
-  # Collapse PEM to a single line with literal \n so it fits in .env format
-  PRIVATE_KEY=$(awk 'NF{printf "%s\\n", $0}' "$TMPDIR_JWT/private.pem")
-  PUBLIC_KEY=$(awk  'NF{printf "%s\\n", $0}' "$TMPDIR_JWT/public.pem")
+  chmod 600 "$PRIVATE_KEY_FILE"
+  chmod 644 "$PUBLIC_KEY_FILE"
 
-  # Write or replace the keys in .env.local
-  if grep -q "^JWT_PRIVATE_KEY=" .env.local; then
-    # Replace existing placeholder lines
-    # Use a temp file to avoid sed -i portability issues between macOS/Linux
-    python3 - "$PRIVATE_KEY" "$PUBLIC_KEY" <<'PYEOF'
+  success "JWT key pair written to keys/jwt-private.pem and keys/jwt-public.pem"
+fi
+
+# Write file path references into .env.local
+info "Updating JWT key file paths in .env.local..."
+python3 - "$PRIVATE_KEY_FILE" "$PUBLIC_KEY_FILE" <<'PYEOF'
 import sys, re, pathlib
 
-priv = sys.argv[1]
-pub  = sys.argv[2]
+priv_path = sys.argv[1]
+pub_path  = sys.argv[2]
 
-path = pathlib.Path(".env.local")
-text = path.read_text()
-text = re.sub(r"^JWT_PRIVATE_KEY=.*$", f"JWT_PRIVATE_KEY={priv}", text, flags=re.MULTILINE)
-text = re.sub(r"^JWT_PUBLIC_KEY=.*$",  f"JWT_PUBLIC_KEY={pub}",   text, flags=re.MULTILINE)
-path.write_text(text)
+env_path = pathlib.Path(".env.local")
+text = env_path.read_text()
+
+# Replace or append JWT_PRIVATE_KEY_FILE
+if re.search(r"^JWT_PRIVATE_KEY_FILE=", text, re.MULTILINE):
+    text = re.sub(r"^JWT_PRIVATE_KEY_FILE=.*$", f"JWT_PRIVATE_KEY_FILE={priv_path}", text, flags=re.MULTILINE)
+else:
+    text = re.sub(r"^JWT_PRIVATE_KEY=.*$", f"JWT_PRIVATE_KEY_FILE={priv_path}", text, flags=re.MULTILINE)
+    if "JWT_PRIVATE_KEY_FILE" not in text:
+        text += f"\nJWT_PRIVATE_KEY_FILE={priv_path}\n"
+
+# Replace or append JWT_PUBLIC_KEY_FILE
+if re.search(r"^JWT_PUBLIC_KEY_FILE=", text, re.MULTILINE):
+    text = re.sub(r"^JWT_PUBLIC_KEY_FILE=.*$", f"JWT_PUBLIC_KEY_FILE={pub_path}", text, flags=re.MULTILINE)
+else:
+    text = re.sub(r"^JWT_PUBLIC_KEY=.*$", f"JWT_PUBLIC_KEY_FILE={pub_path}", text, flags=re.MULTILINE)
+    if "JWT_PUBLIC_KEY_FILE" not in text:
+        text += f"\nJWT_PUBLIC_KEY_FILE={pub_path}\n"
+
+env_path.write_text(text)
 PYEOF
-  else
-    printf "\nJWT_PRIVATE_KEY=%s\n" "$PRIVATE_KEY" >> .env.local
-    printf "JWT_PUBLIC_KEY=%s\n"    "$PUBLIC_KEY"  >> .env.local
-  fi
-
-  success "JWT key pair generated and written to .env.local"
-fi
+success "JWT key file paths written to .env.local"
 
 # ─── 4. ENCRYPTION_KEY (Integrations service) ─────────────────────────────────
 info "Checking ENCRYPTION_KEY in .env.local..."
