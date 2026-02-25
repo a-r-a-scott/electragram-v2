@@ -10,7 +10,7 @@ export function registerAuthRoutes(
   app: FastifyInstance,
   authService: AuthService
 ): void {
-  app.post("/api/auth/signin", async (request, reply) => {
+  app.post("/api/auth/signin", { config: { public: true } }, async (request, reply) => {
     const body = SignInBodySchema.parse(request.body);
     try {
       const result = await authService.signIn(
@@ -26,7 +26,7 @@ export function registerAuthRoutes(
     }
   });
 
-  app.post("/api/auth/signup", async (request, reply) => {
+  app.post("/api/auth/signup", { config: { public: true } }, async (request, reply) => {
     const body = SignUpBodySchema.parse(request.body);
     try {
       const result = await authService.signUp(body, request.ip);
@@ -41,7 +41,7 @@ export function registerAuthRoutes(
 
   const RefreshBodySchema = z.object({ refreshToken: z.string() });
 
-  app.post("/api/auth/refresh", async (request, reply) => {
+  app.post("/api/auth/refresh", { config: { public: true } }, async (request, reply) => {
     const { refreshToken } = RefreshBodySchema.parse(request.body);
     try {
       const result = await authService.refreshTokens(refreshToken);
