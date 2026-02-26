@@ -74,6 +74,8 @@ services:
       - "3000:3000"
     volumes:
       - ./apps/web/src:/app/apps/web/src
+      - ./apps/web/next.config.ts:/app/apps/web/next.config.ts
+      - ./apps/web/tailwind.config.ts:/app/apps/web/tailwind.config.ts
       - ./keys:/run/secrets:ro
     depends_on:
       - identity
