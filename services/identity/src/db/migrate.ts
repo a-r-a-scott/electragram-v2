@@ -103,7 +103,7 @@ export async function runMigrations(db: Db): Promise<void> {
     CREATE TABLE IF NOT EXISTS identity.user_sessions (
       id VARCHAR(26) PRIMARY KEY,
       user_id VARCHAR(26) NOT NULL REFERENCES identity.users(id) ON DELETE CASCADE,
-      persistence_token VARCHAR(255) NOT NULL UNIQUE,
+      persistence_token TEXT NOT NULL UNIQUE,
       ip_address VARCHAR(50),
       last_active_at TIMESTAMPTZ DEFAULT NOW(),
       revoked BOOLEAN NOT NULL DEFAULT FALSE,
@@ -112,6 +112,21 @@ export async function runMigrations(db: Db): Promise<void> {
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     )
+  `);
+
+  // Widen persistence_token if it was created as VARCHAR(255) in an earlier migration
+  await db.execute(sql`
+    DO $$ BEGIN
+      IF EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_schema = 'identity'
+          AND table_name = 'user_sessions'
+          AND column_name = 'persistence_token'
+          AND data_type = 'character varying'
+      ) THEN
+        ALTER TABLE identity.user_sessions ALTER COLUMN persistence_token TYPE TEXT;
+      END IF;
+    END $$;
   `);
 
   await db.execute(sql`
